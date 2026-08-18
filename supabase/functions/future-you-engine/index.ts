@@ -12,7 +12,6 @@ import {
   intakeCapForLevel,
   liveIntakeInstructions,
   liveIntakeTurnSchema,
-  simulatedAnswerForQuestion,
   validateAndBuildLiveResult
 } from "./intake-dynamic.ts";
 
@@ -955,6 +954,7 @@ function validateSemanticResult(result, askedKeys, cap) {
 var OPENAI_URL = "https://api.openai.com/v1/responses";
 var ENGINE_VERSION = "future-you-edge-v5.0-semantic";
 var MODEL = "gpt-5.6-terra";
+var LUNA_MODEL = "gpt-5.6-luna";
 var REASONING_EFFORT = "low";
 var MAX_GOALS = 3;
 var BATCH_CONCURRENCY = 5;
@@ -1444,13 +1444,87 @@ async function runSemanticIntakeTurn(engineInput, context) {
     apiUsed: apiCallCount > 0
   };
 }
+var questionQualityGateSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["passed", "checks", "failed_check", "reason"],
+  properties: {
+    passed: { type: "boolean" },
+    checks: {
+      type: "object",
+      additionalProperties: false,
+      required: ["need", "impact", "evidence", "context", "clarity", "priority"],
+      properties: {
+        need: { type: "boolean" },
+        impact: { type: "boolean" },
+        evidence: { type: "boolean" },
+        context: { type: "boolean" },
+        clarity: { type: "boolean" },
+        priority: { type: "boolean" }
+      }
+    },
+    failed_check: { type: ["string", "null"], maxLength: 20 },
+    reason: { type: "string", minLength: 3, maxLength: 240 }
+  }
+};
+var questionQualityGateInstructions = `
+You are an independent quality grader for exactly one proposed Future You intake question. You did not write this question and have no stake in it. Grade it strictly on its own merits; do not rationalize or defend it.
+
+Judge these six checks against the goal, the missing fact, and everything already known:
+- need: the question targets one genuinely missing fact, not something already known or safely inferable.
+- impact: a real answer would change the named plan field or the completion decision (see why_it_changes_plan).
+- evidence: the missing fact is not already answered, resolved, or already covered by known_context or facts_not_to_reask, even if phrased differently there.
+- context: the wording is grounded in the real goal and known constraints; it does not invent a fact, assumption, or unrelated domain (for example a clinic, a document, or a family member) that known_context never mentioned.
+- clarity: it asks exactly one natural, answerable thing in ordinary language, with exactly one question mark, and a person could answer it without interpreting jargon.
+- priority: of everything still missing, this is a genuinely useful next question to ask now, not merely a technically acceptable one.
+
+Set passed true only if every check is true. If any check fails, set passed false, set failed_check to the single most important failing check by name (need, impact, evidence, context, clarity, or priority), and give a short concrete reason a human reviewer could act on. If passed is true, set failed_check to null.
+`;
+async function gradeQuestionIndependently(question, goal) {
+  const brief = record(question.brief);
+  const input = {
+    goal,
+    main_topic: String(brief.main_topic ?? goal),
+    known_context: array(brief.known_context).map(String),
+    missing_fact: String(brief.missing_fact ?? question.fact_id ?? ""),
+    why_it_changes_plan: String(brief.why_it_changes_plan ?? question.why_needed ?? ""),
+    facts_not_to_reask: array(brief.facts_not_to_reask).map(String),
+    question_text: String(question.text ?? ""),
+    control: String(question.control ?? "text"),
+    options: Array.isArray(question.options) ? question.options : []
+  };
+  const ai = await callOpenAI(
+    "future_you_question_quality_gate_v1",
+    questionQualityGateSchema,
+    questionQualityGateInstructions,
+    input,
+    500,
+    LUNA_MODEL,
+    "low",
+    3e4
+  );
+  const parsed = record(ai.parsed);
+  const checks = record(parsed.checks);
+  const sixChecks = ["need", "impact", "evidence", "context", "clarity", "priority"];
+  const allChecksPassed = sixChecks.every((key) => checks[key] === true);
+  const passed = parsed.passed === true && allChecksPassed;
+  return {
+    passed,
+    checks,
+    failed_check: passed ? null : String(parsed.failed_check ?? sixChecks.find((key) => checks[key] !== true) ?? "unspecified"),
+    reason: String(parsed.reason ?? ""),
+    inputTokens: Number(ai.inputTokens ?? 0),
+    outputTokens: Number(ai.outputTokens ?? 0),
+    latencyMs: Number(ai.latencyMs ?? 0)
+  };
+}
 async function runLiveSemanticIntakeTurn(engineInput, context) {
   const goal = String(engineInput.goal_text ?? "").trim();
   const priorTurns = array(engineInput.prior_turns).map(record);
   const previousBlueprint = record(engineInput.previous_blueprint);
   const previousState = record(previousBlueprint.semantic_intake_state);
   const evidenceItems = buildEvidenceItems(goal, priorTurns);
-  const input = {
+  const baseInput = {
     operation: String(engineInput.operation ?? "intake_turn"),
     intake_level: String(engineInput.intake_level ?? "quick_start"),
     today_date: String(record(engineInput.temporal_context).today_date ?? ""),
@@ -1469,59 +1543,97 @@ async function runLiveSemanticIntakeTurn(engineInput, context) {
     latest_answer: engineInput.latest_answer ?? null,
     safety_cap_reached: Number(context.questionCount ?? 0) >= Number(context.cap ?? 0)
   };
-  let countedInputTokens;
-  try {
-    countedInputTokens = await countOpenAIInputTokens(
+  // Independent quality gate: the question generator (this call) and the question
+  // grader (gradeQuestionIndependently) are deliberately separate LUNA calls so the
+  // same model invocation never both drafts and grades its own question. A failed
+  // grade earns exactly one regeneration attempt; a second failure surfaces the
+  // grader's reason instead of being silently recorded as passed.
+  const MAX_QUESTION_ATTEMPTS = 2;
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
+  let totalLatencyMs = 0;
+  let apiCallCount = 0;
+  let countedInputTokens = 0;
+  let result;
+  let grade = null;
+  let rejection = null;
+  for (let attempt = 1; attempt <= MAX_QUESTION_ATTEMPTS; attempt += 1) {
+    const attemptInput = rejection ? { ...baseInput, previously_rejected_question: rejection } : baseInput;
+    try {
+      countedInputTokens = await countOpenAIInputTokens(
+        "future_you_live_intake_turn_v6",
+        liveIntakeTurnSchema,
+        liveIntakeInstructions,
+        attemptInput,
+        LUNA_MODEL,
+        "low"
+      );
+      assertLiveInputTokenCeiling(countedInputTokens);
+    } catch (error) {
+      if (error instanceof ApiError) throw error;
+      throw new ApiError(413, "intake_input_limit_exceeded", `Future You intake exceeded its ${MAX_INTAKE_INPUT_TOKENS}-token input ceiling. The saved answer can be retried after the evidence map is compacted.`);
+    }
+    const ai = await callOpenAI(
       "future_you_live_intake_turn_v6",
       liveIntakeTurnSchema,
       liveIntakeInstructions,
-      input,
-      MODEL,
-      "low"
+      attemptInput,
+      MAX_INTAKE_OUTPUT_TOKENS,
+      LUNA_MODEL,
+      "low",
+      45e3
     );
-    assertLiveInputTokenCeiling(countedInputTokens);
-  } catch (error) {
-    if (error instanceof ApiError) throw error;
-    throw new ApiError(413, "intake_input_limit_exceeded", `Future You intake exceeded its ${MAX_INTAKE_INPUT_TOKENS}-token input ceiling. The saved answer can be retried after the evidence map is compacted.`);
-  }
-  const ai = await callOpenAI(
-    "future_you_live_intake_turn_v6",
-    liveIntakeTurnSchema,
-    liveIntakeInstructions,
-    input,
-    MAX_INTAKE_OUTPUT_TOKENS,
-    MODEL,
-    "low",
-    45e3
-  );
-  let result;
-  try {
-    result = validateAndBuildLiveResult({
-      goal,
-      output: ai.parsed,
-      previousState,
-      evidenceItems,
-      previousQuestionTexts: array(context.previousQuestionTexts).map(String),
-      previousTurns: priorTurns,
-      questionCount: Number(context.questionCount ?? 0),
-      cap: Number(context.cap ?? 0),
-      intakeLevel: String(context.intakeLevel ?? engineInput.intake_level ?? "quick_start")
-    });
+    totalInputTokens += Number(ai.inputTokens ?? 0);
+    totalOutputTokens += Number(ai.outputTokens ?? 0);
+    totalLatencyMs += Number(ai.latencyMs ?? 0);
+    apiCallCount += 1;
+    try {
+      result = validateAndBuildLiveResult({
+        goal,
+        output: ai.parsed,
+        previousState,
+        evidenceItems,
+        previousQuestionTexts: array(context.previousQuestionTexts).map(String),
+        previousTurns: priorTurns,
+        questionCount: Number(context.questionCount ?? 0),
+        cap: Number(context.cap ?? 0),
+        intakeLevel: String(context.intakeLevel ?? engineInput.intake_level ?? "quick_start")
+      });
+      const draftedQuestion = result.question;
+      if (draftedQuestion) validateQuestionWording(draftedQuestion, array(context.previousQuestionTexts).map(String), true);
+    } catch (error) {
+      throw new ApiError(502, "semantic_intake_result_invalid", error instanceof Error ? error.message : "The live intake result failed deterministic validation.", "error", {
+        call_count: apiCallCount,
+        input_tokens: totalInputTokens,
+        output_tokens: totalOutputTokens
+      });
+    }
     const question = result.question;
-    if (question) validateQuestionWording(question, array(context.previousQuestionTexts).map(String), true);
-  } catch (error) {
-    throw new ApiError(502, "semantic_intake_result_invalid", error instanceof Error ? error.message : "The live intake result failed deterministic validation.", "error", {
-      call_count: 1,
-      input_tokens: Number(ai.inputTokens ?? 0),
-      output_tokens: Number(ai.outputTokens ?? 0)
-    });
+    if (!question) {
+      grade = null;
+      break;
+    }
+    grade = await gradeQuestionIndependently(question, goal);
+    totalInputTokens += grade.inputTokens;
+    totalOutputTokens += grade.outputTokens;
+    totalLatencyMs += grade.latencyMs;
+    apiCallCount += 1;
+    if (grade.passed) break;
+    if (attempt === MAX_QUESTION_ATTEMPTS) {
+      throw new ApiError(502, "question_quality_gate_failed", `The proposed question failed independent quality review on "${grade.failed_check}": ${grade.reason}`, "error", {
+        call_count: apiCallCount,
+        input_tokens: totalInputTokens,
+        output_tokens: totalOutputTokens
+      });
+    }
+    rejection = { question_text: question.text, failed_check: grade.failed_check, reason: grade.reason };
   }
   return {
     result,
     questionQuality: {
       pass: true,
       issues: [],
-      source: "deterministic_live_intake_contract",
+      source: "independent_luna_question_grader",
       checks: [
         "strict_schema",
         "one_question_maximum",
@@ -1529,17 +1641,19 @@ async function runLiveSemanticIntakeTurn(engineInput, context) {
         "completion_gate_proof",
         "required_plan_field_proof",
         "question_cap",
-        "question_wording"
+        "question_wording",
+        "independent_quality_gate"
       ],
+      grader: grade ? { checks: grade.checks, reason: grade.reason, model: LUNA_MODEL } : null,
       counted_input_tokens: countedInputTokens,
       input_token_ceiling: MAX_INTAKE_INPUT_TOKENS,
       output_token_ceiling: MAX_INTAKE_OUTPUT_TOKENS
     },
-    inputTokens: Number(ai.inputTokens ?? 0),
-    outputTokens: Number(ai.outputTokens ?? 0),
-    latencyMs: Number(ai.latencyMs ?? 0),
-    attempts: 1,
-    apiCallCount: 1,
+    inputTokens: totalInputTokens,
+    outputTokens: totalOutputTokens,
+    latencyMs: totalLatencyMs,
+    attempts: apiCallCount,
+    apiCallCount,
     apiUsed: true
   };
 }
@@ -1824,66 +1938,144 @@ async function makeBatchSpecs(body, ctx) {
   }
   return { requested, manualGoals, categories, baseSeed, specs, proofTarget, generationInputTokens, generationOutputTokens, intakeLevel };
 }
-function automaticAnswer(question, spec, turn) {
-  const seed = spec.seed + turn;
+// Simulator respondent: a genuine independent LUNA call constrained to one stable
+// persona and this case's own answer history (its fact ledger), replacing the old
+// keyword-regex answer generator. That regex generator is the confirmed source of
+// the "unrelated primary-care clinic" defect - a scheduling question whose text
+// loosely matched /clinic|doctor|provider|appointment/ got a canned clinic answer
+// regardless of relevance. The respondent below answers only what was asked, may
+// say it does not know, and is instructed never to introduce a fact or domain that
+// the goal, persona, or its own prior answers did not already establish.
+var simulatedRespondentSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["unknown", "selected_option_ids", "text_value"],
+  properties: {
+    unknown: { type: "boolean" },
+    selected_option_ids: { type: "array", maxItems: 6, items: { type: "string", maxLength: 60 } },
+    text_value: { type: "string", maxLength: 300 }
+  }
+};
+var simulatedRespondentInstructions = `
+You are the sole simulated test respondent for one Future You intake case during automated testing. You are not a real user; you exist only to answer questions the way a consistent, real person with this exact persona would, so the testing team can judge whether the intake engine's questions are good.
+
+You have a stable persona and a running fact ledger of every answer you have already given this session (prior_answers). Answer only the exact question asked.
+
+Rules:
+- Never introduce a fact, person, place, condition, document, or domain that the goal, the persona, or your own prior answers did not already establish. Do not invent specifics such as a clinic, a pet, a document, or a family member unless the goal or persona already mentions one.
+- If the goal and persona genuinely do not establish an answer to this question, set unknown true instead of inventing a plausible-sounding fact.
+- Stay consistent with every one of your own prior answers; never contradict a fact you already gave.
+- For single_select or multi_select, choose only from the supplied option ids that fit your persona; put the id(s) in selected_option_ids and leave text_value empty. Choose exactly one id for single_select. Never choose an id named other.
+- For every other control, put your answer in text_value as one direct, ordinary sentence or value, and leave selected_option_ids empty. When control is number, text_value must be a plain digit value with no words or units, for example 45 rather than 45 minutes.
+- Let response_style shade tone only (for example a detailed respondent adds one relevant extra detail, a direct respondent stays terse); it must never justify inventing an unrelated fact.
+`;
+function mapSimulatedRespondentOutput(question, parsed) {
+  const control = String(question.control ?? "text");
+  const options = Array.isArray(question.options) ? question.options : [];
+  const validIds = new Set(options.filter((option) => String(option.id) !== "other").map((option) => String(option.id)));
+  const fallbackId = () => {
+    const notSure = options.find((option) => ["not_sure", "i_have_not_asked_yet", "unknown"].includes(String(option.id)));
+    const none = options.find((option) => String(option.id) === "none");
+    return String((notSure ?? none ?? options[0])?.id ?? "none");
+  };
+  if (control === "single_select") {
+    const chosen = array(parsed.selected_option_ids).map(String).find((id) => validIds.has(id));
+    if (parsed.unknown || !chosen) return { value: fallbackId(), other_text: null };
+    return { value: chosen, other_text: null };
+  }
+  if (control === "multi_select") {
+    const chosen = [...new Set(array(parsed.selected_option_ids).map(String).filter((id) => validIds.has(id)))];
+    if (parsed.unknown || !chosen.length) {
+      const none = options.find((option) => String(option.id) === "none");
+      return { value: [String(none?.id ?? fallbackId())], other_text: null };
+    }
+    return { value: chosen, other_text: null };
+  }
+  if (control === "number") {
+    const numeric = parseNumber(String(parsed.text_value ?? "").trim());
+    if (!parsed.unknown && numeric !== null) return { value: String(numeric), other_text: null };
+    return { value: "1", other_text: null };
+  }
+  const text = parsed.unknown || !String(parsed.text_value ?? "").trim() ? "I do not know." : String(parsed.text_value).trim();
+  return { value: text, other_text: null };
+}
+function usageFrom(ai) {
+  return { inputTokens: Number(ai.inputTokens ?? 0), outputTokens: Number(ai.outputTokens ?? 0), latencyMs: Number(ai.latencyMs ?? 0) };
+}
+async function callSimulatedRespondent(question, spec, transcript) {
+  const priorAnswers = array(transcript).slice(-8).map((turn) => ({
+    question: String(turn.question ?? turn.question_text ?? ""),
+    answer: answerText(record(turn.answer))
+  })).filter((item) => item.question && item.answer);
+  return await callOpenAI(
+    "future_you_simulated_respondent_v1",
+    simulatedRespondentSchema,
+    simulatedRespondentInstructions,
+    {
+      goal: spec.input_goal,
+      question_text: String(question.text ?? ""),
+      control: String(question.control ?? "text"),
+      options: (Array.isArray(question.options) ? question.options : []).filter((option) => String(option.id) !== "other"),
+      persona: {
+        available_minutes_per_day: spec.simulated_profile.available_minutes_per_day ?? 30,
+        available_days_per_week: spec.simulated_profile.available_days_per_week ?? 3,
+        capacity: spec.simulated_profile.capacity ?? "moderate",
+        constraints: array(spec.simulated_profile.constraints).map(String),
+        monthly_available_amount: spec.simulated_profile.monthly_available_amount ?? 150,
+        support_reliability: spec.simulated_profile.support_reliability ?? "independent"
+      },
+      response_style: spec.simulated_profile.response_style ?? "direct",
+      prior_answers: priorAnswers
+    },
+    400,
+    LUNA_MODEL,
+    "low",
+    3e4
+  );
+}
+async function generateAutomaticAnswer(question, spec, turn, transcript) {
   const control = String(question.control);
   const key = String(question.key ?? "");
   const responseStyle = String(spec.simulated_profile.response_style ?? "direct");
   const options = Array.isArray(question.options) ? question.options : [];
-  const usable = options.filter((option) => !["other", "none", "all"].includes(String(option.id)));
   if (control === "single_select") {
-    const uncertain = options.find((option) => ["not_sure", "i_have_not_asked_yet"].includes(String(option.id)));
-    const contradictory = options.filter((option) => ["yes", "no"].includes(String(option.id)));
+    const uncertainOpt = options.find((option) => ["not_sure", "i_have_not_asked_yet"].includes(String(option.id)));
+    const contradictoryOpts = options.filter((option) => ["yes", "no"].includes(String(option.id)));
     const repairFallback = key.startsWith("rp13_") ? options.find((option) => String(option.id) === "lower_the_target") : null;
-    const selected = repairFallback ?? (responseStyle === "uncertain" && uncertain ? uncertain : responseStyle === "contradictory" && contradictory.length > 0 ? contradictory[turn % contradictory.length] : choose(usable.length ? usable : options, seed));
-    return { value: String(selected?.id ?? "other"), other_text: selected ? null : "A workable alternative" };
+    if (repairFallback) return { answer: { value: String(repairFallback.id), other_text: null }, usage: null };
+    if (responseStyle === "uncertain" && uncertainOpt) return { answer: { value: String(uncertainOpt.id), other_text: null }, usage: null };
+    if (responseStyle === "contradictory" && contradictoryOpts.length > 0) {
+      return { answer: { value: String(contradictoryOpts[turn % contradictoryOpts.length].id), other_text: null }, usage: null };
+    }
+    const ai = await callSimulatedRespondent(question, spec, transcript);
+    return { answer: mapSimulatedRespondentOutput(question, record(ai.parsed)), usage: usageFrom(ai) };
   }
   if (control === "multi_select") {
     if (responseStyle === "skipped" && options.some((option) => String(option.id) === "none")) {
-      return { value: ["none"], other_text: null };
+      return { answer: { value: ["none"], other_text: null }, usage: null };
     }
-    const first = choose(usable.length ? usable : options, seed);
-    const second = usable.length > 2 ? choose(usable, seed, 1) : null;
-    const values = [...new Set([first?.id, second?.id].filter(Boolean).map(String))];
-    return { value: values.length ? values : ["none"], other_text: null };
+    const ai = await callSimulatedRespondent(question, spec, transcript);
+    return { answer: mapSimulatedRespondentOutput(question, record(ai.parsed)), usage: usageFrom(ai) };
   }
   if (control === "number") {
-    if (["u04", "ms02", "rp06"].includes(key)) return { value: String(spec.simulated_profile.monthly_available_amount ?? 150), other_text: null };
-    if (["u06", "rp04"].includes(key)) return { value: String(spec.simulated_profile.available_minutes_per_day ?? 30), other_text: null };
-    return simulatedAnswerForQuestion(question, spec.input_goal, spec.simulated_profile, turn);
+    if (["u04", "ms02", "rp06"].includes(key)) return { answer: { value: String(spec.simulated_profile.monthly_available_amount ?? 150), other_text: null }, usage: null };
+    if (["u06", "rp04"].includes(key)) return { answer: { value: String(spec.simulated_profile.available_minutes_per_day ?? 30), other_text: null }, usage: null };
   }
-  if (control === "date") return { value: "2026-12-31", other_text: null };
-  if (control === "time") return { value: "18:00", other_text: null };
-  if (/^q\d+$/.test(key)) return simulatedAnswerForQuestion(question, spec.input_goal, spec.simulated_profile, turn);
-  if (responseStyle === "vague") return { value: turn % 2 === 0 ? "I just want it to be better." : "Whatever is realistic.", other_text: null };
-  if (responseStyle === "uncertain") return { value: "I am not sure yet.", other_text: null };
-  if (responseStyle === "skipped") return { value: "I do not know.", other_text: null };
-  const textAnswers = {
-    fn02_detail: "Dairy and sesame need to be avoided.",
-    pet_care_needs: "The dog needs medication twice daily and three outdoor breaks. The cat needs food, water, and litter care once daily.",
-    pet_caregivers: "Maya is the primary caregiver, and Jordan is the backup.",
-    pet_visit_frequency: "2 visits each day",
-    pet_care_gap: "Jordan will cover the additional daily visit if Maya cannot.",
-    pet_access: "Both caregivers will use a tested lockbox code.",
-    pet_authority: "Jordan can approve urgent veterinary care if I cannot be reached.",
-    rp12: "Build a presentable portfolio and a focused list of local prospects.",
-    u01: "I will know it is done when the stated result is complete.",
-    u02: "I am starting from the beginning.",
-    u03: "I currently do this once a week.",
-    u04: "1000",
-    u05: "2026-12-31",
-    u06: `I can use ${spec.simulated_profile.available_minutes_per_day ?? 30} minutes on ${spec.simulated_profile.available_days_per_week ?? 3} days each week.`,
-    u07: "I have the basic tools and access I need.",
-    u08: "My work hours and caregiving duties cannot change.",
-    u09: "Time and low energy are the main barriers.",
-    u17: "No one else needs to approve it."
-  };
-  const base = textAnswers[key];
-  if (base === void 0) return simulatedAnswerForQuestion(question, spec.input_goal, spec.simulated_profile, turn);
-  if (responseStyle === "contradictory" && turn > 1) return { value: `${base} My schedule may not actually allow that every week.`, other_text: null };
-  if (responseStyle === "changing" && turn > 2) return { value: `${base} I am changing my earlier answer because this is the more realistic version.`, other_text: null };
-  if (responseStyle === "detailed") return { value: `${base} I need this to work around my current schedule and responsibilities.`, other_text: null };
-  return { value: base, other_text: null };
+  if (control === "date") return { answer: { value: "2026-12-31", other_text: null }, usage: null };
+  if (control === "time") return { answer: { value: "18:00", other_text: null }, usage: null };
+  // Free-text (and any unmatched number control): vague/uncertain/skipped stay the same
+  // fixed non-answers as before - a deliberate "won't engage" test behavior, not content
+  // guessing. Everything else now comes from the AI respondent instead of keyword regex.
+  if (responseStyle === "vague") return { answer: { value: turn % 2 === 0 ? "I just want it to be better." : "Whatever is realistic.", other_text: null }, usage: null };
+  if (responseStyle === "uncertain") return { answer: { value: "I am not sure yet.", other_text: null }, usage: null };
+  if (responseStyle === "skipped") return { answer: { value: "I do not know.", other_text: null }, usage: null };
+  const ai = await callSimulatedRespondent(question, spec, transcript);
+  let answer = mapSimulatedRespondentOutput(question, record(ai.parsed));
+  const baseText = String(answer.value ?? "");
+  if (responseStyle === "contradictory" && turn > 1) answer = { value: `${baseText} My schedule may not actually allow that every week.`, other_text: null };
+  else if (responseStyle === "changing" && turn > 2) answer = { value: `${baseText} I am changing my earlier answer because this is the more realistic version.`, other_text: null };
+  else if (responseStyle === "detailed") answer = { value: `${baseText} I need this to work around my current schedule and responsibilities.`, other_text: null };
+  return { answer, usage: usageFrom(ai) };
 }
 async function simulateBatchIntake(spec, level) {
   const transcript = [];
@@ -1939,7 +2131,13 @@ async function simulateBatchIntake(spec, level) {
     });
     previousBlueprint = { ...result.blueprint, coverage: result.coverage, viability: result.viability, goal_calibration: result.goal_calibration };
     if (!nextQuestion) break;
-    const generatedAnswer = { answer: automaticAnswer(nextQuestion, spec, turn), fallbackUsed: false };
+    const respondent = await generateAutomaticAnswer(nextQuestion, spec, turn, transcript);
+    const generatedAnswer = { answer: respondent.answer, fallbackUsed: false };
+    if (respondent.usage) {
+      inputTokens += respondent.usage.inputTokens;
+      outputTokens += respondent.usage.outputTokens;
+      callCount += 1;
+    }
     const semantic = { review: localAnswerQuality(nextQuestion, generatedAnswer.answer) };
     const key = String(nextQuestion.key);
     hadRepair ||= String(nextQuestion.kind) === "viability_repair";
@@ -2013,8 +2211,11 @@ function resumableBatchPatch(row, runtime, transcript, trace, result) {
     failure_codes: [],
     failure_explanations: [],
     timing: { total_ms: Number(runtime.elapsed_ms ?? 0), phase: runtime.phase, turn: runtime.turn },
-    api_usage: { call_count: Number(runtime.call_count ?? 0), input_tokens: inputTokens, output_tokens: outputTokens, model: MODEL, reasoning_effort: REASONING_EFFORT },
-    estimated_cost_usd: modelCost(MODEL, inputTokens, outputTokens)
+    // advanceIntakeBatchCase only ever runs the intake phase (question generation,
+    // the independent grader, and the simulated respondent) - every token counted
+    // here is a LUNA call, not Terra.
+    api_usage: { call_count: Number(runtime.call_count ?? 0), input_tokens: inputTokens, output_tokens: outputTokens, model: LUNA_MODEL, reasoning_effort: REASONING_EFFORT },
+    estimated_cost_usd: modelCost(LUNA_MODEL, inputTokens, outputTokens)
   };
 }
 function terminalBatchPatch(row, runtime, transcript, trace, result, error) {
@@ -2035,8 +2236,8 @@ function terminalBatchPatch(row, runtime, transcript, trace, result, error) {
     failure_codes: code ? [code] : [],
     failure_explanations: explanation ? [explanation] : [],
     timing: { total_ms: Number(runtime.elapsed_ms ?? 0), phase: "done", turn: runtime.turn },
-    api_usage: { call_count: Number(runtime.call_count ?? 0), input_tokens: inputTokens, output_tokens: outputTokens, model: MODEL, reasoning_effort: REASONING_EFFORT },
-    estimated_cost_usd: modelCost(MODEL, inputTokens, outputTokens),
+    api_usage: { call_count: Number(runtime.call_count ?? 0), input_tokens: inputTokens, output_tokens: outputTokens, model: LUNA_MODEL, reasoning_effort: REASONING_EFFORT },
+    estimated_cost_usd: modelCost(LUNA_MODEL, inputTokens, outputTokens),
     completed_at: (/* @__PURE__ */ new Date()).toISOString()
   };
 }
@@ -2105,7 +2306,13 @@ async function advanceIntakeBatchCase(row) {
         runtime.phase = "done";
         return finish(result);
       }
-      const answer = automaticAnswer(question, spec, Number(runtime.turn ?? 0));
+      const respondent = await generateAutomaticAnswer(question, spec, Number(runtime.turn ?? 0), transcript);
+      const answer = respondent.answer;
+      if (respondent.usage) {
+        runtime.input_tokens = Number(runtime.input_tokens ?? 0) + Number(respondent.usage.inputTokens ?? 0);
+        runtime.output_tokens = Number(runtime.output_tokens ?? 0) + Number(respondent.usage.outputTokens ?? 0);
+        runtime.call_count = Number(runtime.call_count ?? 0) + 1;
+      }
       const semantic = { review: localAnswerQuality(question, answer) };
       const key = String(question.key);
       runtime.had_repair = runtime.had_repair === true || String(question.kind) === "viability_repair";
@@ -2194,8 +2401,14 @@ async function executeBatchCase(row, compartment) {
   let transcript = [];
   let trace = [];
   let output = null;
-  let inputTokens = 0;
-  let outputTokens = 0;
+  // Luna covers intake generation, the independent grader, and the simulated
+  // respondent; Terra covers Action Plan generation only. They are tracked
+  // separately so estimated_cost_usd and api_usage report real stage cost instead
+  // of mispricing Luna-rate tokens at the (higher) Terra rate or vice versa.
+  let lunaInputTokens = 0;
+  let lunaOutputTokens = 0;
+  let terraInputTokens = 0;
+  let terraOutputTokens = 0;
   let callCount = 0;
   try {
     let plan = null;
@@ -2203,8 +2416,8 @@ async function executeBatchCase(row, compartment) {
       const intake = await simulateBatchIntake(spec, compartment === "intake" ? "quick_start" : "full_plan");
       transcript = intake.transcript;
       trace = intake.trace;
-      inputTokens += intake.inputTokens;
-      outputTokens += intake.outputTokens;
+      lunaInputTokens += intake.inputTokens;
+      lunaOutputTokens += intake.outputTokens;
       callCount += intake.callCount;
       output = {
         intake: intake.result,
@@ -2213,8 +2426,8 @@ async function executeBatchCase(row, compartment) {
       if (["action_plans", "end_to_end"].includes(compartment) && spec.proof_selected) {
         const ai = await buildBatchPlan(spec, intake);
         plan = ai.parsed;
-        inputTokens += ai.inputTokens ?? 0;
-        outputTokens += ai.outputTokens ?? 0;
+        terraInputTokens += ai.inputTokens ?? 0;
+        terraOutputTokens += ai.outputTokens ?? 0;
         callCount += 1;
         output = { ...output, plan };
         trace.push({ stage: "action_plan", model: MODEL, validation: "passed" });
@@ -2233,7 +2446,7 @@ async function executeBatchCase(row, compartment) {
       trace.push({ stage: "progress_update", decision: progress.decision, validation: progress.valid ? "passed" : "rejected_without_mutation" });
     }
     const warnings = compartment === "intake" && ["prepare", "stop_redirect"].includes(String((output?.intake ?? {}).next_action)) ? ["intake_requires_review"] : [];
-    const cost = modelCost(MODEL, inputTokens, outputTokens);
+    const cost = modelCost(LUNA_MODEL, lunaInputTokens, lunaOutputTokens) + modelCost(MODEL, terraInputTokens, terraOutputTokens);
     return {
       status: warnings.length ? "warning" : "passed",
       transcript,
@@ -2243,7 +2456,18 @@ async function executeBatchCase(row, compartment) {
       failure_codes: warnings,
       failure_explanations: warnings.map(() => "The engine returned a safe stop or preparation route that needs reviewer inspection."),
       timing: { total_ms: Date.now() - started },
-      api_usage: { call_count: callCount, input_tokens: inputTokens, output_tokens: outputTokens, model: MODEL, reasoning_effort: REASONING_EFFORT },
+      api_usage: {
+        call_count: callCount,
+        input_tokens: lunaInputTokens + terraInputTokens,
+        output_tokens: lunaOutputTokens + terraOutputTokens,
+        luna_input_tokens: lunaInputTokens,
+        luna_output_tokens: lunaOutputTokens,
+        terra_input_tokens: terraInputTokens,
+        terra_output_tokens: terraOutputTokens,
+        model: LUNA_MODEL,
+        plan_model: MODEL,
+        reasoning_effort: REASONING_EFFORT
+      },
       estimated_cost_usd: cost
     };
   } catch (error) {
@@ -2258,8 +2482,21 @@ async function executeBatchCase(row, compartment) {
       failure_codes: [code],
       failure_explanations: [error instanceof Error ? error.message : "The case failed unexpectedly."],
       timing: { total_ms: Date.now() - started },
-      api_usage: { call_count: callCount, input_tokens: inputTokens, output_tokens: outputTokens, model: MODEL, reasoning_effort: REASONING_EFFORT },
-      estimated_cost_usd: modelCost(MODEL, inputTokens, outputTokens)
+      // Tokens burned before the failure (Luna and/or Terra) are still counted here,
+      // not dropped - a failed grader or respondent call cost real money too.
+      api_usage: {
+        call_count: callCount,
+        input_tokens: lunaInputTokens + terraInputTokens,
+        output_tokens: lunaOutputTokens + terraOutputTokens,
+        luna_input_tokens: lunaInputTokens,
+        luna_output_tokens: lunaOutputTokens,
+        terra_input_tokens: terraInputTokens,
+        terra_output_tokens: terraOutputTokens,
+        model: LUNA_MODEL,
+        plan_model: MODEL,
+        reasoning_effort: REASONING_EFFORT
+      },
+      estimated_cost_usd: modelCost(LUNA_MODEL, lunaInputTokens, lunaOutputTokens) + modelCost(MODEL, terraInputTokens, terraOutputTokens)
     };
   }
 }
@@ -2788,7 +3025,11 @@ async function createBatch(body, ctx) {
   const campaign = await campaignSnapshot(ctx, activeCampaign.id);
   const goalGenerationCost = modelCost(ANALYZER_MODEL, made.generationInputTokens, made.generationOutputTokens);
   const maxIntakeTurns = made.intakeLevel === "quick_start" ? 6 : 19;
-  const maxIntakeTurnCost = modelCost(MODEL, MAX_INTAKE_INPUT_TOKENS, MAX_INTAKE_OUTPUT_TOKENS);
+  // Intake now runs on LUNA (cheaper per token than TERRA), but each turn can make up
+  // to two LUNA calls (question generation + the independent grader, doubled again on
+  // one regeneration attempt) instead of one, so the per-turn ceiling is doubled to stay
+  // a real safety cap rather than a stale Terra-priced, single-call estimate.
+  const maxIntakeTurnCost = modelCost(LUNA_MODEL, MAX_INTAKE_INPUT_TOKENS, MAX_INTAKE_OUTPUT_TOKENS) * 2;
   const intakeSafetyCeiling = compartment === "intake" ? made.requested * maxIntakeTurns * maxIntakeTurnCost : made.requested * 0.025;
   const analyzerAllowance = 0.05;
   const preflightEstimate = goalGenerationCost + intakeSafetyCeiling + made.proofTarget * 0.02 + analyzerAllowance;
@@ -3103,7 +3344,7 @@ async function startIntake(req, body, ctx) {
     goal_text: goalText,
     level,
     max_questions: cap,
-    model_version: MODEL
+    model_version: LUNA_MODEL
   }).select("*").single();
   if (error) throw error;
   const runId = await createRun(ctx.admin, {
@@ -3113,7 +3354,7 @@ async function startIntake(req, body, ctx) {
     request_id: requestId,
     input_refs: { session_id: session.id },
     input_snapshot: { goal_text: goalText, level, context },
-    model_version: MODEL,
+    model_version: LUNA_MODEL,
     prompt_version: LIVE_SEMANTIC_INTAKE_VERSION,
     schema_version: SCHEMA_VERSION
   });
@@ -3134,7 +3375,12 @@ async function startIntake(req, body, ctx) {
         blueprint_link: question.blueprint_link,
         plan_impacts: question.plan_impacts,
         activation_rule: question.activation_rule,
-        review_result: { impact: true, skip: true, utility: true, kind: question.kind, phase: question.repair_phase, why_needed: question.why_needed, question_brief: question.brief, quality_gate: dynamic.questionQuality, source: "semantic_evidence_intake_v6_dynamic" }
+        // impact/skip/utility now reflect the independent grader's actual verdict for this
+        // question (gradeQuestionIndependently), not a hard-coded pass. A question only
+        // reaches this insert after passing the grader, so these are the real check results:
+        // impact <- the grader's "impact" check, skip <- "evidence" (the fact was genuinely
+        // unresolved, i.e. not skippable), utility <- "priority" (this was the best next ask).
+        review_result: { impact: dynamic.questionQuality.grader?.checks?.impact === true, skip: dynamic.questionQuality.grader?.checks?.evidence === true, utility: dynamic.questionQuality.grader?.checks?.priority === true, kind: question.kind, phase: question.repair_phase, why_needed: question.why_needed, question_brief: question.brief, quality_gate: dynamic.questionQuality, source: "semantic_evidence_intake_v6_dynamic" }
       }).select("id").single();
       if (turnError) throw turnError;
       questionId = turn.id;
@@ -3156,14 +3402,26 @@ async function startIntake(req, body, ctx) {
       status: "succeeded",
       structured_output: result,
       evidence_summary: result.evidence_summary,
-      validation: { schema: true, evidence_contract: true, deterministic_turn_contract: true, completion_gate_proof: true, semantic_state_controller: true, one_model_call: true, cap: true, attempts: dynamic.attempts },
+      validation: { schema: true, evidence_contract: true, deterministic_turn_contract: true, completion_gate_proof: true, semantic_state_controller: true, independent_question_grader: true, cap: true, attempts: dynamic.attempts },
       latency_ms: Date.now() - started,
       input_tokens: dynamic.inputTokens,
-      output_tokens: dynamic.outputTokens
+      output_tokens: dynamic.outputTokens,
+      estimated_cost_usd: modelCost(LUNA_MODEL, dynamic.inputTokens, dynamic.outputTokens)
     });
     return success(publicIntakeResponse(updated, result, questionId), updated.revision);
   } catch (error2) {
-    await completeRun(ctx.admin, runId, { status: error2 instanceof ApiError && error2.code === "model_refusal" ? "refused" : "failed", error_code: error2 instanceof ApiError ? error2.code : "unknown" });
+    // Every Luna call this turn is counted here too, including the calls that led to
+    // the failure (the grader, and any regeneration attempt) - not just successful runs.
+    const usage = error2 instanceof ApiError ? error2.usage : null;
+    const failedInputTokens = Number(usage?.input_tokens ?? 0);
+    const failedOutputTokens = Number(usage?.output_tokens ?? 0);
+    await completeRun(ctx.admin, runId, {
+      status: error2 instanceof ApiError && error2.code === "model_refusal" ? "refused" : "failed",
+      error_code: error2 instanceof ApiError ? error2.code : "unknown",
+      input_tokens: failedInputTokens,
+      output_tokens: failedOutputTokens,
+      estimated_cost_usd: modelCost(LUNA_MODEL, failedInputTokens, failedOutputTokens)
+    });
     throw error2;
   }
 }
@@ -3227,7 +3485,7 @@ async function answerIntake(body, ctx, intakeId) {
       request_id: requestId,
       input_refs: { session_id: intakeId, question_id: questionId },
       input_snapshot: { goal_text: session.goal_text, level: session.level, turns: turnsForEngine, context },
-      model_version: MODEL,
+      model_version: LUNA_MODEL,
       prompt_version: LIVE_SEMANTIC_INTAKE_VERSION,
       schema_version: SCHEMA_VERSION
     });
@@ -3282,7 +3540,9 @@ async function answerIntake(body, ctx, intakeId) {
       blueprint_link: question.blueprint_link,
       plan_impacts: question.plan_impacts,
       activation_rule: question.activation_rule,
-      review_result: { impact: true, skip: true, utility: true, kind: question.kind, phase: question.repair_phase, why_needed: question.why_needed, question_brief: question.brief, quality_gate: dynamic.questionQuality, source: "semantic_evidence_intake_v6_dynamic" }
+      // Same real-verdict mapping as startIntake (see comment there): impact/skip/utility
+      // reflect the independent grader's actual checks, not a hard-coded pass.
+      review_result: { impact: dynamic.questionQuality.grader?.checks?.impact === true, skip: dynamic.questionQuality.grader?.checks?.evidence === true, utility: dynamic.questionQuality.grader?.checks?.priority === true, kind: question.kind, phase: question.repair_phase, why_needed: question.why_needed, question_brief: question.brief, quality_gate: dynamic.questionQuality, source: "semantic_evidence_intake_v6_dynamic" }
     } : null;
     const { data: committed, error: commitError } = await ctx.admin.rpc("commit_future_you_reassessment", {
       p_user_id: ctx.user.id,
@@ -3300,18 +3560,32 @@ async function answerIntake(body, ctx, intakeId) {
     if (!commit || Number(commit.revision) !== nextRevision) throw new ApiError(500, "answer_commit_failed", "Future You could not safely save that answer.");
     const nextQuestionId = typeof commit.question_id === "string" ? commit.question_id : null;
     const updated = { ...session, ...sessionPatch, revision: nextRevision };
+    const successInputTokens = dynamic.inputTokens + (answerQuality?.inputTokens ?? 0);
+    const successOutputTokens = dynamic.outputTokens + (answerQuality?.outputTokens ?? 0);
     await completeRun(ctx.admin, runId, {
       status: "succeeded",
       structured_output: result,
       evidence_summary: result.evidence_summary,
-      validation: { schema: true, evidence_contract: true, deterministic_turn_contract: true, completion_gate_proof: true, answer_saved_before_luna: true, semantic_state_controller: true, one_model_call: true, cap: true, revision: true, split_answer_commit: true, attempts: dynamic.attempts },
+      validation: { schema: true, evidence_contract: true, deterministic_turn_contract: true, completion_gate_proof: true, answer_saved_before_luna: true, semantic_state_controller: true, independent_question_grader: true, cap: true, revision: true, split_answer_commit: true, attempts: dynamic.attempts },
       latency_ms: Date.now() - started,
-      input_tokens: dynamic.inputTokens + (answerQuality?.inputTokens ?? 0),
-      output_tokens: dynamic.outputTokens + (answerQuality?.outputTokens ?? 0)
+      input_tokens: successInputTokens,
+      output_tokens: successOutputTokens,
+      estimated_cost_usd: modelCost(LUNA_MODEL, successInputTokens, successOutputTokens)
     });
     return success(publicIntakeResponse(updated, result, nextQuestionId), nextRevision);
   } catch (error) {
-    if (runId) await completeRun(ctx.admin, runId, { status: error instanceof ApiError && error.code === "model_refusal" ? "refused" : "failed", error_code: error instanceof ApiError ? error.code : "unknown" });
+    // Same accounting on failure: a rejected question or a failed grader call still
+    // burned real Luna tokens, and those must be counted here rather than dropped.
+    const usage = error instanceof ApiError ? error.usage : null;
+    const failedInputTokens = Number(usage?.input_tokens ?? 0);
+    const failedOutputTokens = Number(usage?.output_tokens ?? 0);
+    if (runId) await completeRun(ctx.admin, runId, {
+      status: error instanceof ApiError && error.code === "model_refusal" ? "refused" : "failed",
+      error_code: error instanceof ApiError ? error.code : "unknown",
+      input_tokens: failedInputTokens,
+      output_tokens: failedOutputTokens,
+      estimated_cost_usd: modelCost(LUNA_MODEL, failedInputTokens, failedOutputTokens)
+    });
     throw new ApiError(503, "intake_reassessment_pending", "Your answer was saved, but Future You could not reassess it yet. Retry this answer to continue safely.", "needs_input");
   }
 }

@@ -201,6 +201,7 @@ Question contract:
 - Do not ask for information already confirmed.
 - If an answer resolves a broad fact but exposes a new missing detail, add a new unresolved fact and target that new fact. Never mark a fact confirmed and ask it again in the same response.
 - After a vague, uncertain, skipped, or off-topic answer, ask a materially different clarification. Never repeat the exact question text.
+- If the input includes previously_rejected_question, an independent reviewer rejected that exact question this turn. Do not propose it again in the same or close wording; resolve a different unresolved fact, or ask about the same fact in a materially different, better way that addresses the reviewer's stated reason.
 - Do not use a fixed category library or category-first selection.
 - Keep the question to one sentence, one question mark, and at most 22 words.
 
@@ -236,102 +237,14 @@ export function addIntakeUsage(current: Partial<IntakeUsage>, addition: Partial<
   };
 }
 
-function simulatedFactKey(question: any): string {
-  const brief = asRecord(question?.brief);
-  return String(brief.missing_fact_key ?? question?.fact_id ?? question?.blueprint_link ?? "").toLowerCase();
-}
-
-function simulatedAnswerText(question: any, goal: string, profile: any): string {
-  const prompt = String(question?.text ?? "").toLowerCase();
-  const factKey = simulatedFactKey(question);
-  const factLabel = String(asRecord(question?.brief).missing_fact ?? "").toLowerCase();
-  const context = `${factKey} ${factLabel} ${prompt}`;
-  const goalText = goal.toLowerCase();
-  const minutes = Number(profile?.available_minutes_per_day ?? 30);
-  const days = Number(profile?.available_days_per_week ?? 3);
-  const amount = Number(profile?.monthly_available_amount ?? 150);
-  const constraints = asArray(profile?.constraints).map(String);
-
-  if (/jurisdiction|country|state|province|territory|where .*found|where .*located/.test(context)) {
-    return "It was found in Albany, New York, United States.";
-  }
-  if (/handwritten will|document detail|signature|witness|dated|library book/.test(context)) {
-    return "The handwritten will is dated, signed, and names two people, but I do not see witness signatures.";
-  }
-  if (/child|pet/.test(context) && /cabinet|dangerous|unsafe|reach/.test(context)) {
-    return "A child can currently reach the cabinet, which contains medicine and cleaning products.";
-  }
-  if (/caregiving|care hours|care task|parent|sibling|covered care|filled shift/.test(context)) {
-    if (/success|result|working|arrangement/.test(context)) return "Success means all 14 weekly care hours are assigned and no medication or meal visits are missed.";
-    if (/hour|task|need/.test(context)) return "My parent needs about 14 hours each week for medication, meals, transport, and household help.";
-    return "My parent and two siblings must agree, and a case manager can help if we cannot agree.";
-  }
-  if (/mandarin|conversation|translation|speaking prompt|language/.test(context)) {
-    return "Success is a five-minute Mandarin conversation about greetings, family, and daily routines, with one written prompt and no translation.";
-  }
-  if (/submission date|original date|deadline|due date/.test(context)) {
-    return `The original deadline is October 15, 2026, and I can work for ${minutes} minutes on ${days} days each week.`;
-  }
-
-  if (/smoke alarm|smoke detector/.test(`${goalText} ${context}`)) {
-    return "I have two smoke alarms: one in the hallway outside the bedrooms and one in the living room.";
-  }
-  if (/clinic|doctor|provider|appointment/.test(`${goalText} ${context}`)) {
-    return "I use my neighborhood primary-care clinic, can book through its portal, and can attend weekday appointments after 4 PM.";
-  }
-  if (/transfer|monthly amount|available amount|budget|afford|money|saving|debt|expense|bill/.test(context)) {
-    return `I can transfer $${amount} each month starting on my next payday.`;
-  }
-  if (/current state|baseline|right now|currently|starting point|already/.test(context)) {
-    if (/walk/.test(goalText)) return "I currently walk about 10 minutes after work once a week.";
-    return "I am starting near the beginning and currently work on this about once a week.";
-  }
-  if (/success|measur|done|complete|finish|outcome/.test(context)) {
-    if (/walk/.test(goalText)) return `Success means walking for 20 minutes after work on ${days} days each week for one month.`;
-    return `Success means I can verify the goal is complete on ${days} separate days or checkpoints.`;
-  }
-  if (/time|capacity|schedule|cadence|when|day|week|month/.test(context)) {
-    return `I can use ${minutes} minutes on ${days} days each week, usually after work.`;
-  }
-  if (/access|resource|tool|equipment|location/.test(context)) {
-    return "I have the basic tools, account access, transportation, and a place to do this.";
-  }
-  if (/constraint|nonnegotiable|must not change|cannot change/.test(context)) {
-    return constraints.length > 0 ? `${constraints.join(" and ")} cannot change.` : "My work schedule cannot change.";
-  }
-  if (/barrier|risk|hardest|difficult|gets in the way|stops you/.test(context)) {
-    return "My work schedule and low energy after work are the main barriers.";
-  }
-  if (/support|depend|help|approval|who else/.test(context)) {
-    return profile?.support_reliability === "confirmed support"
-      ? "One trusted person has agreed to help when needed."
-      : "I am responsible for this and do not need anyone else's approval.";
-  }
-  if (/goal specific|specific requirement|detail/.test(context)) {
-    return `The goal-specific requirement is to do this after work and keep it within ${minutes} minutes.`;
-  }
-  const subject = words(String(question?.text ?? "")).filter((word) => word.length > 3).slice(0, 6).join(" ");
-  return `For ${subject || "this goal"}, my current answer is that it must fit within ${minutes} minutes on ${days} days each week.`;
-}
-
-export function simulatedAnswerForQuestion(question: any, goal: string, profile: any, turn = 0): { value: string; other_text: null } {
-  const responseStyle = String(profile?.response_style ?? "direct");
-  if (responseStyle === "vague") return { value: turn % 2 === 0 ? "I just want it to be better." : "Whatever is realistic.", other_text: null };
-  if (responseStyle === "uncertain") return { value: "I am not sure yet.", other_text: null };
-  if (responseStyle === "skipped") return { value: "I do not know.", other_text: null };
-  if (String(question?.control) === "number") {
-    const context = `${simulatedFactKey(question)} ${String(asRecord(question?.brief).missing_fact ?? "")} ${String(question?.text ?? "")}`.toLowerCase();
-    if (/transfer|amount|budget|afford|money|saving/.test(context)) return { value: String(profile?.monthly_available_amount ?? 150), other_text: null };
-    if (/minute|time|capacity/.test(context)) return { value: String(profile?.available_minutes_per_day ?? 30), other_text: null };
-    if (/day|week|cadence|frequency/.test(context)) return { value: String(profile?.available_days_per_week ?? 3), other_text: null };
-    if (/smoke alarm|smoke detector/.test(context)) return { value: "2", other_text: null };
-  }
-  const base = simulatedAnswerText(question, goal, profile);
-  if (responseStyle === "contradictory" && turn > 1) return { value: `${base} My schedule may not actually allow that every week.`, other_text: null };
-  if (responseStyle === "changing" && turn > 2) return { value: `${base} I am changing my earlier answer because this is the more realistic version.`, other_text: null };
-  if (responseStyle === "detailed") return { value: `${base} I need this to work around my current responsibilities.`, other_text: null };
-  return { value: base, other_text: null };
-}
+// The keyword-regex answer generator that used to live here (simulatedFactKey,
+// simulatedAnswerText, simulatedAnswerForQuestion) has been removed. It is the
+// confirmed source of the "unrelated primary-care clinic" defect: a scheduling
+// question whose text loosely matched /clinic|doctor|provider|appointment/ got a
+// canned clinic answer regardless of relevance. It is replaced by a genuine LUNA
+// respondent call in supabase/functions/future-you-engine/index.ts
+// (callSimulatedRespondent / generateAutomaticAnswer), constrained to one stable
+// persona and this case's own answer history instead of keyword matching.
 
 function asRecord(value: unknown): Record<string, any> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, any> : {};
