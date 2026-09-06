@@ -4,6 +4,7 @@ import { TARGET_CATALOG_VERSION } from "./intake-orchestrator.ts";
 import { requirementsForTopic, TOPIC_REQUIREMENT_SEEDS } from "./topic-requirements.ts";
 import { validateSourceHandoffDraft } from "./source-contract.ts";
 import { validateInitialPlanDraft } from "./plan-contract.ts";
+import { deriveInitialPlan } from "./plan-deriver.ts";
 
 /**
  * Locked Future You service, kept separate from the legacy future-you-engine.
@@ -312,6 +313,15 @@ Deno.serve(async (req) => {
       return json({ engine: "future-you-locked-v1", result: data, integrityHash, note: "Original Plan is immutable. Live Plan begins at revision 1." });
     }
 
+    if (payload.operation === "derive_initial_plan") {
+      if (!isUuid(payload.intakeInstanceId)) return json({ error: "A valid intakeInstanceId is required." }, 400);
+      const { data: intake, error: intakeError } = await context.admin.from("intake_instances").select("source_snapshot, status").eq("id", payload.intakeInstanceId).eq("user_id", context.user.id).maybeSingle();
+      if (intakeError) throw intakeError;
+      if (!intake || intake.status !== "validated" || !intake.source_snapshot || Object.keys(intake.source_snapshot).length === 0) return json({ error: "A frozen Source handoff is required." }, 400);
+      const result = await deriveInitialPlan(intake.source_snapshot);
+      return json({ engine:"future-you-locked-v1", planDraft:result.plan, usage:result.usage, note:"This is a draft. It is not saved until approved." });
+    }
+
     if (payload.operation === "plan_state") {
       if (!isUuid(payload.goalId)) return json({ error: "A valid goalId is required." }, 400);
       const [originalResult, liveResult, l3Result] = await Promise.all([
@@ -384,7 +394,7 @@ Deno.serve(async (req) => {
       return json({ engine: "future-you-locked-v1", result: data });
     }
 
-    if (payload.operation !== "contract_status") return json({ error: "Unknown operation. Use contract_status, start_intake, intake_state, record_intake_answer, intake_readiness, source_handoff_preview, validate_source_handoff, freeze_source_handoff, validate_initial_plan, approve_initial_plan, plan_state, record_evidence, evidence_state, or revise_live_plan." }, 400);
+    if (payload.operation !== "contract_status") return json({ error: "Unknown operation. Use contract_status, start_intake, intake_state, record_intake_answer, intake_readiness, source_handoff_preview, validate_source_handoff, freeze_source_handoff, validate_initial_plan, derive_initial_plan, approve_initial_plan, plan_state, record_evidence, evidence_state, or revise_live_plan." }, 400);
 
     const { data: versions, error } = await context.admin
       .from("future_you_contract_versions")
