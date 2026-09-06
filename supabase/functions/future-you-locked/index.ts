@@ -170,7 +170,24 @@ Deno.serve(async (req) => {
       });
     }
 
-    if (payload.operation !== "contract_status") return json({ error: "Unknown operation. Use contract_status, start_intake, or intake_state." }, 400);
+    if (payload.operation === "record_intake_answer") {
+      if (!isUuid(payload.intakeInstanceId) || typeof payload.informationKey !== "string" || !payload.rawValue || typeof payload.rawValue !== "object" || Array.isArray(payload.rawValue)) {
+        return json({ error: "A valid intakeInstanceId, informationKey, and answer object are required." }, 400);
+      }
+      const { data, error } = await context.admin.rpc("future_you_record_locked_intake_answer", {
+        p_user_id: context.user.id,
+        p_intake_instance_id: payload.intakeInstanceId,
+        p_information_key: payload.informationKey,
+        p_raw_value: payload.rawValue,
+      });
+      if (error) {
+        const clientErrors = new Set(["future_you_intake_not_available", "future_you_answer_not_for_current_target", "future_you_answer_object_required"]);
+        return json({ error: clientErrors.has(error.message) ? error.message : "Unable to record this intake answer." }, 400);
+      }
+      return json({ engine: "future-you-locked-v1", result: data });
+    }
+
+    if (payload.operation !== "contract_status") return json({ error: "Unknown operation. Use contract_status, start_intake, intake_state, or record_intake_answer." }, 400);
 
     const { data: versions, error } = await context.admin
       .from("future_you_contract_versions")
