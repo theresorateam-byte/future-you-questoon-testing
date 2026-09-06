@@ -351,6 +351,22 @@ Deno.serve(async (req) => {
       return json({ engine: "future-you-locked-v1", evidence: evidence ?? [], applications: applications ?? [] });
     }
 
+    if (payload.operation === "revise_live_plan") {
+      if (!isUuid(payload.goalId) || !isUuid(payload.evidenceId) || !Number.isInteger(payload.expectedRevision) || !payload.planDraft || typeof payload.planDraft !== "object" || Array.isArray(payload.planDraft)) {
+        return json({ error: "A valid goalId, evidenceId, expectedRevision, and planDraft are required." }, 400);
+      }
+      const { data: sourceIntake, error: sourceError } = await context.admin.from("intake_instances")
+        .select("source_snapshot").eq("goal_id", payload.goalId).eq("user_id", context.user.id).eq("status", "validated").order("created_at", { ascending: false }).limit(1).maybeSingle();
+      if (sourceError) throw sourceError;
+      if (!sourceIntake?.source_snapshot || Object.keys(sourceIntake.source_snapshot).length === 0) return json({ error: "A frozen Source handoff is required." }, 400);
+      const validation = validateInitialPlanDraft(payload.planDraft, sourceIntake.source_snapshot);
+      if (!validation.valid) return json({ valid: false, stage: "live_plan_revision", errors: validation.errors });
+      const integrityHash = await sha256Json(payload.planDraft);
+      const { data, error } = await context.admin.rpc("future_you_revise_locked_live_plan", { p_user_id: context.user.id, p_goal_id: payload.goalId, p_evidence_id: payload.evidenceId, p_expected_revision: payload.expectedRevision, p_plan: payload.planDraft, p_integrity_hash: integrityHash });
+      if (error) return json({ error: "Unable to revise this Live Plan." }, 400);
+      return json({ engine: "future-you-locked-v1", result: data, integrityHash, note: "The Original Plan was not changed." });
+    }
+
     if (payload.operation === "record_intake_answer") {
       if (!isUuid(payload.intakeInstanceId) || typeof payload.informationKey !== "string" || !payload.rawValue || typeof payload.rawValue !== "object" || Array.isArray(payload.rawValue)) {
         return json({ error: "A valid intakeInstanceId, informationKey, and answer object are required." }, 400);
@@ -368,7 +384,7 @@ Deno.serve(async (req) => {
       return json({ engine: "future-you-locked-v1", result: data });
     }
 
-    if (payload.operation !== "contract_status") return json({ error: "Unknown operation. Use contract_status, start_intake, intake_state, record_intake_answer, intake_readiness, source_handoff_preview, validate_source_handoff, freeze_source_handoff, validate_initial_plan, approve_initial_plan, plan_state, record_evidence, or evidence_state." }, 400);
+    if (payload.operation !== "contract_status") return json({ error: "Unknown operation. Use contract_status, start_intake, intake_state, record_intake_answer, intake_readiness, source_handoff_preview, validate_source_handoff, freeze_source_handoff, validate_initial_plan, approve_initial_plan, plan_state, record_evidence, evidence_state, or revise_live_plan." }, 400);
 
     const { data: versions, error } = await context.admin
       .from("future_you_contract_versions")
