@@ -112,6 +112,7 @@ Deno.serve(async (req) => {
           requirement_key: requirement.key,
           priority: requirement.priority,
           decision_area: requirement.decisionArea,
+          target: { key: requirement.key, decisionArea: requirement.decisionArea },
         })),
       });
       if (seedError) throw seedError;
