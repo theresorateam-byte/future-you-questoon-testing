@@ -9,6 +9,24 @@ type TopicConfig = {
 };
 
 export const TOPIC_PROGRESSION_CONFIGS: Record<string, TopicConfig> = {
+  become_more_confident: {
+    model: "confidence_context_dimension_v1",
+    routes: {
+      confidence: {
+        units: ["stable_self_worth", "capability_belief", "confident_action", "confidence_recovery"],
+        numberedStates: true,
+      },
+    },
+  },
+  build_self_trust: {
+    model: "self_trust_dimensions_v1",
+    routes: {
+      self_trust: {
+        units: ["self_knowledge", "self_authority", "judgment_calibration", "self_reliability", "adaptation_recovery"],
+        numberedStates: true,
+      },
+    },
+  },
   build_stronger_relationships: {
     model: "relationship_dimensions_v1",
     routes: {
@@ -49,6 +67,9 @@ export function validateControlledTopicState(topicKey: string, currentState: Rec
   const route = typeof currentState.route === "string" ? currentState.route : "";
   const routeConfig = config.routes[route];
   if (!routeConfig) return [...errors, "Choose a locked route for this topic."];
+  if (topicKey === "become_more_confident" && (typeof currentState.contextKey !== "string" || currentState.contextKey.trim().length === 0)) {
+    errors.push("Confidence state must name the relevant context; confidence does not transfer globally by default.");
+  }
   const units = object(currentState.units);
   if (!units || Object.keys(units).length === 0) return [...errors, "Provide one or more controlled progression units."];
   for (const [key, value] of Object.entries(units)) {

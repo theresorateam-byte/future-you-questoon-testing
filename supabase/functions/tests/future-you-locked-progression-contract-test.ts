@@ -48,3 +48,28 @@ Deno.test("rejects invented relationship units", () => {
   };
   assertEquals(validateProgressionAssessment(invalid, "build_stronger_relationships", [evidenceId]).valid, false);
 });
+
+Deno.test("keeps confidence state attached to a context and a controlled dimension", () => {
+  const confidenceDraft = {
+    ...draft,
+    topicKey: "become_more_confident",
+    currentState: {
+      model: "confidence_context_dimension_v1", route: "confidence", contextKey: "work_leadership",
+      units: { confident_action: { level: 3 }, confidence_recovery: { level: 2 } },
+    },
+    roles: [{ key: "confidence_recovery", role: "primary" }],
+  };
+  assertEquals(validateProgressionAssessment(confidenceDraft, "become_more_confident", [evidenceId]).valid, true);
+  const missingContext = { ...confidenceDraft, currentState: { ...confidenceDraft.currentState, contextKey: "" } };
+  assertEquals(validateProgressionAssessment(missingContext, "become_more_confident", [evidenceId]).valid, false);
+});
+
+Deno.test("uses the five locked self-trust dimensions", () => {
+  const selfTrust = {
+    ...draft,
+    topicKey: "build_self_trust",
+    currentState: { model: "self_trust_dimensions_v1", route: "self_trust", units: { judgment_calibration: { level: 3 } } },
+    roles: [{ key: "judgment_calibration", role: "primary" }],
+  };
+  assertEquals(validateProgressionAssessment(selfTrust, "build_self_trust", [evidenceId]).valid, true);
+});
