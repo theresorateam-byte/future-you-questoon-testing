@@ -343,9 +343,11 @@ Deno.serve(async (req) => {
     }
 
     if (payload.operation === "record_evidence") {
-      if (!isUuid(payload.goalId) || typeof payload.sourceKind !== "string" || !payload.content || typeof payload.content !== "object" || Array.isArray(payload.content)) return json({ error: "A valid goalId, sourceKind, and evidence content object are required." }, 400);
+      if (!isUuid(payload.goalId) || typeof payload.sourceKind !== "string" || !payload.content || typeof payload.content !== "object" || Array.isArray(payload.content) || Object.keys(payload.content).length === 0) return json({ error: "A valid goalId, sourceKind, and non-empty evidence content object are required." }, 400);
+      if (payload.quality !== undefined && (!payload.quality || typeof payload.quality !== "object" || Array.isArray(payload.quality))) return json({ error: "Evidence quality must be an object." }, 400);
+      if (payload.context !== undefined && (!payload.context || typeof payload.context !== "object" || Array.isArray(payload.context))) return json({ error: "Evidence context must be an object." }, 400);
       const occurredAt = typeof payload.occurredAt === "string" && !Number.isNaN(Date.parse(payload.occurredAt)) ? payload.occurredAt : null;
-      const { data, error } = await context.admin.rpc("future_you_record_locked_evidence", { p_user_id: context.user.id, p_goal_id: payload.goalId, p_source_kind: payload.sourceKind, p_content: payload.content, p_occurred_at: occurredAt });
+      const { data, error } = await context.admin.rpc("future_you_record_locked_evidence_v2", { p_user_id: context.user.id, p_goal_id: payload.goalId, p_source_kind: payload.sourceKind, p_content: payload.content, p_quality: payload.quality ?? {}, p_context: payload.context ?? {}, p_occurred_at: occurredAt });
       if (error) return json({ error: "Unable to record this evidence." }, 400);
       return json({ engine: "future-you-locked-v1", evidenceId: data });
     }
