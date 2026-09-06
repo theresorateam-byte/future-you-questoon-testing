@@ -2,6 +2,7 @@ import "@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { TARGET_CATALOG_VERSION } from "./intake-orchestrator.ts";
 import { requirementsForTopic, TOPIC_REQUIREMENT_SEEDS } from "./topic-requirements.ts";
+import { validateSourceHandoffDraft } from "./source-contract.ts";
 
 /**
  * Locked Future You service, kept separate from the legacy future-you-engine.
@@ -201,6 +202,32 @@ Deno.serve(async (req) => {
       return json({ ready: true, handoff: { goalId: intake.goal_id, intakeInstanceId: intake.id, sourceSnapshot: intake.source_snapshot, facts: factsResult.data ?? [], unresolvedUncertainties: uncertaintiesResult.data ?? [] } });
     }
 
+    if (payload.operation === "validate_source_handoff") {
+      if (!isUuid(payload.intakeInstanceId) || !payload.sourceDraft || typeof payload.sourceDraft !== "object" || Array.isArray(payload.sourceDraft)) {
+        return json({ error: "A valid intakeInstanceId and sourceDraft object are required." }, 400);
+      }
+      const { data: intake, error: intakeError } = await context.admin.from("intake_instances")
+        .select("id, status").eq("id", payload.intakeInstanceId).eq("user_id", context.user.id).maybeSingle();
+      if (intakeError) throw intakeError;
+      if (!intake) return json({ error: "Intake not found." }, 404);
+      const [requirementsResult, factsResult, uncertaintiesResult] = await Promise.all([
+        context.admin.from("intake_requirements").select("requirement_key, priority, applicability, resolution").eq("intake_instance_id", intake.id).eq("user_id", context.user.id),
+        context.admin.from("intake_facts").select("fact_key").eq("intake_instance_id", intake.id).eq("user_id", context.user.id),
+        context.admin.from("intake_uncertainties").select("uncertainty_key").eq("intake_instance_id", intake.id).eq("user_id", context.user.id).eq("status", "open"),
+      ]);
+      const queryError = [requirementsResult.error, factsResult.error, uncertaintiesResult.error].find(Boolean);
+      if (queryError) throw queryError;
+      const blockers = (requirementsResult.data ?? []).filter((item) => item.applicability === "active" && ["essential_now", "conditional"].includes(item.priority) && !["satisfied", "provisional", "not_applicable"].includes(item.resolution));
+      if (intake.status !== "deriving" || blockers.length > 0) return json({ valid: false, stage: "intake", blockers, errors: [{ path: "intake", code: "missing", message: "Complete the active intake requirements before validating a Source handoff." }] });
+      const validation = validateSourceHandoffDraft(payload.sourceDraft, (factsResult.data ?? []).map((fact) => fact.fact_key));
+      return json({
+        ...validation,
+        stage: "source_handoff",
+        unresolvedUncertainties: (uncertaintiesResult.data ?? []).map((item) => item.uncertainty_key),
+        note: validation.valid ? "Validated structure only. This does not yet create an Original Plan or Live Plan." : "Fix the listed fields or collect the missing intake evidence.",
+      });
+    }
+
     if (payload.operation === "record_intake_answer") {
       if (!isUuid(payload.intakeInstanceId) || typeof payload.informationKey !== "string" || !payload.rawValue || typeof payload.rawValue !== "object" || Array.isArray(payload.rawValue)) {
         return json({ error: "A valid intakeInstanceId, informationKey, and answer object are required." }, 400);
@@ -218,7 +245,7 @@ Deno.serve(async (req) => {
       return json({ engine: "future-you-locked-v1", result: data });
     }
 
-    if (payload.operation !== "contract_status") return json({ error: "Unknown operation. Use contract_status, start_intake, intake_state, record_intake_answer, intake_readiness, or source_handoff_preview." }, 400);
+    if (payload.operation !== "contract_status") return json({ error: "Unknown operation. Use contract_status, start_intake, intake_state, record_intake_answer, intake_readiness, source_handoff_preview, or validate_source_handoff." }, 400);
 
     const { data: versions, error } = await context.admin
       .from("future_you_contract_versions")
