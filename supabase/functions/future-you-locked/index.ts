@@ -333,6 +333,24 @@ Deno.serve(async (req) => {
       return json({ engine: "future-you-locked-v1", evidenceId: data });
     }
 
+    if (payload.operation === "evidence_state") {
+      if (!isUuid(payload.goalId)) return json({ error: "A valid goalId is required." }, 400);
+      const { data: original, error: originalError } = await context.admin.from("original_action_plans")
+        .select("id").eq("goal_id", payload.goalId).eq("user_id", context.user.id).eq("schema_version", "locked-v1").maybeSingle();
+      if (originalError) throw originalError;
+      if (!original) return json({ error: "No Locked v1 plan was found for this goal." }, 404);
+      const { data: evidence, error: evidenceError } = await context.admin.from("canonical_evidence")
+        .select("id, source_kind, evidence_content, quality, context, occurred_at, recorded_at, correction_of_id")
+        .eq("goal_id", payload.goalId).eq("user_id", context.user.id).order("recorded_at", { ascending: false }).limit(100);
+      if (evidenceError) throw evidenceError;
+      const evidenceIds = (evidence ?? []).map((item) => item.id);
+      const { data: applications, error: applicationsError } = evidenceIds.length === 0
+        ? { data: [], error: null }
+        : await context.admin.from("evidence_applications").select("canonical_evidence_id, target_scope, target_key, application_type, rationale, created_at").in("canonical_evidence_id", evidenceIds).order("created_at", { ascending: false });
+      if (applicationsError) throw applicationsError;
+      return json({ engine: "future-you-locked-v1", evidence: evidence ?? [], applications: applications ?? [] });
+    }
+
     if (payload.operation === "record_intake_answer") {
       if (!isUuid(payload.intakeInstanceId) || typeof payload.informationKey !== "string" || !payload.rawValue || typeof payload.rawValue !== "object" || Array.isArray(payload.rawValue)) {
         return json({ error: "A valid intakeInstanceId, informationKey, and answer object are required." }, 400);
@@ -350,7 +368,7 @@ Deno.serve(async (req) => {
       return json({ engine: "future-you-locked-v1", result: data });
     }
 
-    if (payload.operation !== "contract_status") return json({ error: "Unknown operation. Use contract_status, start_intake, intake_state, record_intake_answer, intake_readiness, source_handoff_preview, validate_source_handoff, freeze_source_handoff, validate_initial_plan, approve_initial_plan, plan_state, or record_evidence." }, 400);
+    if (payload.operation !== "contract_status") return json({ error: "Unknown operation. Use contract_status, start_intake, intake_state, record_intake_answer, intake_readiness, source_handoff_preview, validate_source_handoff, freeze_source_handoff, validate_initial_plan, approve_initial_plan, plan_state, record_evidence, or evidence_state." }, 400);
 
     const { data: versions, error } = await context.admin
       .from("future_you_contract_versions")
