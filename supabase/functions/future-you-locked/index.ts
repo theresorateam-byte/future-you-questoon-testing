@@ -25,6 +25,12 @@ function isUuid(value: unknown): value is string {
   return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
+async function sha256Json(value: unknown) {
+  const bytes = new TextEncoder().encode(JSON.stringify(value));
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 function envKey(groupName: string, fallback: string) {
   try {
     const group = JSON.parse(Deno.env.get(groupName) ?? "{}");
@@ -279,6 +285,33 @@ Deno.serve(async (req) => {
       });
     }
 
+    if (payload.operation === "approve_initial_plan") {
+      if (!isUuid(payload.intakeInstanceId) || !payload.planDraft || typeof payload.planDraft !== "object" || Array.isArray(payload.planDraft)) {
+        return json({ error: "A valid intakeInstanceId and planDraft object are required." }, 400);
+      }
+      const { data: intake, error: intakeError } = await context.admin.from("intake_instances")
+        .select("id, status, source_snapshot").eq("id", payload.intakeInstanceId).eq("user_id", context.user.id).maybeSingle();
+      if (intakeError) throw intakeError;
+      if (!intake) return json({ error: "Intake not found." }, 404);
+      if (intake.status !== "validated" || !intake.source_snapshot || Object.keys(intake.source_snapshot).length === 0) {
+        return json({ error: "Freeze a validated Source handoff before approving an initial plan." }, 400);
+      }
+      const validation = validateInitialPlanDraft(payload.planDraft, intake.source_snapshot);
+      if (!validation.valid) return json({ valid: false, stage: "initial_plan", errors: validation.errors });
+      const integrityHash = await sha256Json(payload.planDraft);
+      const { data, error } = await context.admin.rpc("future_you_approve_locked_initial_plan", {
+        p_user_id: context.user.id,
+        p_intake_instance_id: intake.id,
+        p_plan: payload.planDraft,
+        p_integrity_hash: integrityHash,
+      });
+      if (error) {
+        const clientErrors = new Set(["future_you_initial_plan_not_ready", "future_you_original_plan_already_exists"]);
+        return json({ error: clientErrors.has(error.message) ? error.message : "Unable to approve this initial plan." }, 400);
+      }
+      return json({ engine: "future-you-locked-v1", result: data, integrityHash, note: "Original Plan is immutable. Live Plan begins at revision 1." });
+    }
+
     if (payload.operation === "record_intake_answer") {
       if (!isUuid(payload.intakeInstanceId) || typeof payload.informationKey !== "string" || !payload.rawValue || typeof payload.rawValue !== "object" || Array.isArray(payload.rawValue)) {
         return json({ error: "A valid intakeInstanceId, informationKey, and answer object are required." }, 400);
@@ -296,7 +329,7 @@ Deno.serve(async (req) => {
       return json({ engine: "future-you-locked-v1", result: data });
     }
 
-    if (payload.operation !== "contract_status") return json({ error: "Unknown operation. Use contract_status, start_intake, intake_state, record_intake_answer, intake_readiness, source_handoff_preview, validate_source_handoff, freeze_source_handoff, or validate_initial_plan." }, 400);
+    if (payload.operation !== "contract_status") return json({ error: "Unknown operation. Use contract_status, start_intake, intake_state, record_intake_answer, intake_readiness, source_handoff_preview, validate_source_handoff, freeze_source_handoff, validate_initial_plan, or approve_initial_plan." }, 400);
 
     const { data: versions, error } = await context.admin
       .from("future_you_contract_versions")
