@@ -325,6 +325,14 @@ Deno.serve(async (req) => {
       return json({ engine: "future-you-locked-v1", originalPlan: originalResult.data, livePlan: liveResult.data, l3State: l3Result.data ?? null });
     }
 
+    if (payload.operation === "record_evidence") {
+      if (!isUuid(payload.goalId) || typeof payload.sourceKind !== "string" || !payload.content || typeof payload.content !== "object" || Array.isArray(payload.content)) return json({ error: "A valid goalId, sourceKind, and evidence content object are required." }, 400);
+      const occurredAt = typeof payload.occurredAt === "string" && !Number.isNaN(Date.parse(payload.occurredAt)) ? payload.occurredAt : null;
+      const { data, error } = await context.admin.rpc("future_you_record_locked_evidence", { p_user_id: context.user.id, p_goal_id: payload.goalId, p_source_kind: payload.sourceKind, p_content: payload.content, p_occurred_at: occurredAt });
+      if (error) return json({ error: "Unable to record this evidence." }, 400);
+      return json({ engine: "future-you-locked-v1", evidenceId: data });
+    }
+
     if (payload.operation === "record_intake_answer") {
       if (!isUuid(payload.intakeInstanceId) || typeof payload.informationKey !== "string" || !payload.rawValue || typeof payload.rawValue !== "object" || Array.isArray(payload.rawValue)) {
         return json({ error: "A valid intakeInstanceId, informationKey, and answer object are required." }, 400);
@@ -342,7 +350,7 @@ Deno.serve(async (req) => {
       return json({ engine: "future-you-locked-v1", result: data });
     }
 
-    if (payload.operation !== "contract_status") return json({ error: "Unknown operation. Use contract_status, start_intake, intake_state, record_intake_answer, intake_readiness, source_handoff_preview, validate_source_handoff, freeze_source_handoff, validate_initial_plan, approve_initial_plan, or plan_state." }, 400);
+    if (payload.operation !== "contract_status") return json({ error: "Unknown operation. Use contract_status, start_intake, intake_state, record_intake_answer, intake_readiness, source_handoff_preview, validate_source_handoff, freeze_source_handoff, validate_initial_plan, approve_initial_plan, plan_state, or record_evidence." }, 400);
 
     const { data: versions, error } = await context.admin
       .from("future_you_contract_versions")
