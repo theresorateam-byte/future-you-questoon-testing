@@ -81,8 +81,8 @@ Deno.serve(async (req) => {
 
     const { data: versions, error } = await context.admin
       .from("future_you_contract_versions")
-      .select("scope, version, active")
-      .eq("active", true)
+      .select("scope, version, status")
+      .eq("status", "locked")
       .order("scope");
     if (error) throw error;
 
