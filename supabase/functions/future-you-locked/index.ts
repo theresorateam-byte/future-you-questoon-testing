@@ -116,6 +116,15 @@ Deno.serve(async (req) => {
         })),
       });
       if (seedError) throw seedError;
+      const { data: firstRequirement, error: firstRequirementError } = await context.admin
+        .from("intake_requirements").select("target").eq("intake_instance_id", intake.intake_instance_id)
+        .eq("applicability", "active").eq("resolution", "missing").eq("priority", "essential_now").order("id").limit(1).maybeSingle();
+      if (firstRequirementError) throw firstRequirementError;
+      if (!firstRequirement?.target) throw new Error("Future You topic has no initial target.");
+      const { error: targetError } = await context.admin.from("intake_instances")
+        .update({ next_information_target: firstRequirement.target }).eq("id", intake.intake_instance_id).eq("user_id", context.user.id);
+      if (targetError) throw targetError;
+      intake.next_information_target = firstRequirement.target;
       if (intake?.next_information_target?.key === "goal_meaning") {
         intake.next_information_target = {
           key: "i1_a2_desired_direction",
