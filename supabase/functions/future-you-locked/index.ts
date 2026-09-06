@@ -17,6 +17,10 @@ function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: corsHeaders });
 }
 
+function isUuid(value: unknown): value is string {
+  return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
 function envKey(groupName: string, fallback: string) {
   try {
     const group = JSON.parse(Deno.env.get(groupName) ?? "{}");
@@ -97,7 +101,42 @@ Deno.serve(async (req) => {
       return json({ engine: "future-you-locked-v1", intake });
     }
 
-    if (payload.operation !== "contract_status") return json({ error: "Unknown operation. Use contract_status or start_intake." }, 400);
+    if (payload.operation === "intake_state") {
+      if (!isUuid(payload.goalId)) return json({ error: "A valid goalId is required." }, 400);
+
+      const { data: intake, error: intakeError } = await context.admin
+        .from("intake_instances")
+        .select("id, goal_id, intake_kind, status, readiness, next_information_target, source_snapshot, created_at, updated_at")
+        .eq("goal_id", payload.goalId)
+        .eq("user_id", context.user.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (intakeError) throw intakeError;
+      if (!intake) return json({ error: "No Locked v1 intake was found for this goal." }, 404);
+
+      const [facts, requirements, uncertainties, candidates] = await Promise.all([
+        context.admin.from("intake_facts").select("fact_key, fact_value, status, stability, current_event_id, provenance, updated_at").eq("intake_instance_id", intake.id).eq("user_id", context.user.id).order("fact_key"),
+        context.admin.from("intake_requirements").select("requirement_key, priority, applicability, resolution, activation_reason, supporting_fact_ids, updated_at").eq("intake_instance_id", intake.id).eq("user_id", context.user.id).order("requirement_key"),
+        context.admin.from("intake_uncertainties").select("uncertainty_key, uncertainty_kind, status, related_event_ids, resolution_note, created_at, resolved_at").eq("intake_instance_id", intake.id).eq("user_id", context.user.id).order("created_at"),
+        context.admin.from("route_candidate_evidence").select("candidate_topic_key, candidate_role, evidence_event_id, rationale, status, created_at").eq("intake_instance_id", intake.id).eq("user_id", context.user.id).order("created_at"),
+      ]);
+      const queryError = [facts.error, requirements.error, uncertainties.error, candidates.error].find(Boolean);
+      if (queryError) throw queryError;
+
+      return json({
+        engine: "future-you-locked-v1",
+        intake,
+        ledgers: {
+          facts: facts.data ?? [],
+          requirements: requirements.data ?? [],
+          uncertainties: uncertainties.data ?? [],
+          routeCandidates: candidates.data ?? [],
+        },
+      });
+    }
+
+    if (payload.operation !== "contract_status") return json({ error: "Unknown operation. Use contract_status, start_intake, or intake_state." }, 400);
 
     const { data: versions, error } = await context.admin
       .from("future_you_contract_versions")
