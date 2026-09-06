@@ -1,6 +1,7 @@
 import "@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { TARGET_CATALOG_VERSION } from "./intake-orchestrator.ts";
+import { TOPIC_REQUIREMENT_SEEDS } from "./topic-requirements.ts";
 
 /**
  * Locked Future You service, kept separate from the legacy future-you-engine.
@@ -160,6 +161,7 @@ Deno.serve(async (req) => {
       tester: { email: context.user.email ?? null, role: context.role },
       contract: {
         intakeTargetCatalogVersion: TARGET_CATALOG_VERSION,
+        topicRequirementSetCount: Object.keys(TOPIC_REQUIREMENT_SEEDS).length,
         activeVersionCount: scopes.length,
         topicCount: scopes.filter((scope) => scope === "topic").length,
         routingCount: scopes.filter((scope) => scope === "routing").length,
