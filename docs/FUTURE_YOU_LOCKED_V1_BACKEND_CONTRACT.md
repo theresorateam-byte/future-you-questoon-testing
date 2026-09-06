@@ -106,6 +106,21 @@ The old single Edge Function is archived as the baseline. Locked v1 will separat
 | Validator | Blocks unsafe, unrealistic, guardrail-breaking, or unsupported drafts. |
 | Simulator | Runs isolated scenarios and records only test evidence. |
 
+## Implemented protected API flow
+
+The `future-you-locked` Edge Function requires an authenticated, active tester. The Flutter client sends only the operation payload and its user JWT; all database writes use the server-only service role.
+
+1. `start_intake` → creates the goal, bindings, immutable first fact, and topic requirements.
+2. `intake_state` / `record_intake_answer` / `intake_readiness` → completes only active, decision-relevant requirements.
+3. `source_handoff_preview` / `validate_source_handoff` / `freeze_source_handoff` → validates and freezes I3 once.
+4. `derive_initial_plan` → produces a non-persisted OpenAI draft from the frozen handoff; `validate_initial_plan` checks it.
+5. `approve_initial_plan` → saves immutable Original Plan, Live Plan revision 1, and an L3 seed.
+6. `record_evidence` / `evidence_state` → preserves user evidence and its applications.
+7. `revise_live_plan` → requires an evidence ID and expected revision; it never changes the Original Plan.
+8. `plan_state` → reads Original Plan, current Live Plan, and L3 state for the signed-in owner.
+
+For an end-to-end test, use one signed-in tester, begin with `build_routines_that_work`, complete all listed requirements, then run the operations in the order above. Verify an unauthenticated request receives `401`, another user cannot read the goal, and a stale Live Plan revision is rejected.
+
 ## Migration principles
 
 - Do not delete the old simulator tables or test evidence in the first migration.
@@ -123,4 +138,3 @@ The old single Edge Function is archived as the baseline. Locked v1 will separat
 4. Updates preserve history and rewrite future only after validation.
 5. The simulator passes the locked action-plan, routing, evidence, state-movement, Change Path, and cross-goal tests.
 6. RLS tests prove a tester cannot read or change another tester’s records.
-
