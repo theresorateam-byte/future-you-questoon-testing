@@ -144,6 +144,13 @@ Deno.serve(async (req) => {
       return json({ engine: "future-you-locked-v1", intake });
     }
 
+    if (payload.operation === "start_change_path") {
+      if (!isUuid(payload.goalId) || !payload.requestedChange || typeof payload.requestedChange !== "object" || Array.isArray(payload.requestedChange)) return json({ error: "A valid goalId and requestedChange object are required." }, 400);
+      const { data, error } = await context.admin.rpc("future_you_start_locked_change_path", { p_user_id: context.user.id, p_goal_id: payload.goalId, p_requested_change: payload.requestedChange });
+      if (error) return json({ error: "Unable to start this Change Path." }, 400);
+      return json({ engine: "future-you-locked-v1", result: data, note: "The original intake and Original Plan remain unchanged." });
+    }
+
     if (payload.operation === "intake_state") {
       if (!isUuid(payload.goalId)) return json({ error: "A valid goalId is required." }, 400);
 
@@ -394,7 +401,7 @@ Deno.serve(async (req) => {
       return json({ engine: "future-you-locked-v1", result: data });
     }
 
-    if (payload.operation !== "contract_status") return json({ error: "Unknown operation. Use contract_status, start_intake, intake_state, record_intake_answer, intake_readiness, source_handoff_preview, validate_source_handoff, freeze_source_handoff, validate_initial_plan, derive_initial_plan, approve_initial_plan, plan_state, record_evidence, evidence_state, or revise_live_plan." }, 400);
+    if (payload.operation !== "contract_status") return json({ error: "Unknown operation. Use contract_status, start_intake, start_change_path, intake_state, record_intake_answer, intake_readiness, source_handoff_preview, validate_source_handoff, freeze_source_handoff, validate_initial_plan, derive_initial_plan, approve_initial_plan, plan_state, record_evidence, evidence_state, or revise_live_plan." }, 400);
 
     const { data: versions, error } = await context.admin
       .from("future_you_contract_versions")
