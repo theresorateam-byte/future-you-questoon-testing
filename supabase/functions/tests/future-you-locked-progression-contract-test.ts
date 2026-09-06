@@ -90,3 +90,20 @@ Deno.test("keeps Time and Putting Things Off as separate causal models", () => {
   assertEquals(validateProgressionAssessment(time, "manage_my_time_better", [evidenceId]).valid, true);
   assertEquals(validateProgressionAssessment(delay, "stop_putting_things_off", [evidenceId]).valid, true);
 });
+
+Deno.test("uses controlled units for communication, boundaries, home, and routines", () => {
+  const cases = [
+    ["communicate_better", "communication_dimensions_v1", "communication", "clarity"],
+    ["set_better_boundaries", "boundary_dimensions_v1", "boundaries", "boundary_follow_through"],
+    ["get_my_home_organized", "home_organization_v1", "home_organization", "placement_access"],
+    ["build_routines_that_work", "routine_structure_v1", "routines", "repeatability"],
+  ] as const;
+  for (const [topicKey, model, route, unit] of cases) {
+    const topicDraft = {
+      ...draft, topicKey,
+      currentState: { model, route, units: { [unit]: { level: 3 } } },
+      roles: [{ key: unit, role: "primary" }],
+    };
+    assertEquals(validateProgressionAssessment(topicDraft, topicKey, [evidenceId]).valid, true);
+  }
+});

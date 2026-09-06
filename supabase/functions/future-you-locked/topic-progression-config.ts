@@ -45,6 +45,42 @@ export const TOPIC_PROGRESSION_CONFIGS: Record<string, TopicConfig> = {
       },
     },
   },
+  communicate_better: {
+    model: "communication_dimensions_v1",
+    routes: {
+      communication: {
+        units: ["expression", "clarity", "listening_understanding", "regulation", "judgment"],
+        numberedStates: true,
+      },
+    },
+  },
+  set_better_boundaries: {
+    model: "boundary_dimensions_v1",
+    routes: {
+      boundaries: {
+        units: ["boundary_awareness", "boundary_judgment", "boundary_implementation", "boundary_follow_through", "boundary_reciprocity"],
+        numberedStates: true,
+      },
+    },
+  },
+  get_my_home_organized: {
+    model: "home_organization_v1",
+    routes: {
+      home_organization: {
+        units: ["environmental_function", "placement_access", "household_systems", "maintenance_recovery", "restorative_fit", "adaptability"],
+        numberedStates: true,
+      },
+    },
+  },
+  build_routines_that_work: {
+    model: "routine_structure_v1",
+    routes: {
+      routines: {
+        units: ["routine_fit", "cue_structure", "repeatability", "recovery", "flexibility_adaptability", "routine_portfolio_fit"],
+        numberedStates: true,
+      },
+    },
+  },
   build_stronger_relationships: {
     model: "relationship_dimensions_v1",
     routes: {
