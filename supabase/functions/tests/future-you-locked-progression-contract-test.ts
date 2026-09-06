@@ -21,3 +21,8 @@ Deno.test("allows a cited, uncertainty-preserving Level 3 assessment", () => {
 Deno.test("rejects a reference to evidence from another goal", () => {
   assertEquals(validateProgressionAssessment(draft, "build_routines_that_work", []).valid, false);
 });
+
+Deno.test("accepts the Medium confidence vocabulary used by topic contracts", () => {
+  const medium = { ...draft, stateConfidence: { level: "medium", rationale: "Evidence is useful but not broad enough for high confidence." } };
+  assertEquals(validateProgressionAssessment(medium, "build_routines_that_work", [evidenceId]).valid, true);
+});

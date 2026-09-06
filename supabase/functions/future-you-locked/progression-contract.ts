@@ -15,7 +15,9 @@ type RecordValue = Record<string, unknown>;
 const outcomes = new Set(["continue", "build", "ease", "switch"]);
 const applications = new Set(["supports", "limits", "contradicts", "requires_follow_up"]);
 const roles = new Set(["primary", "secondary", "tertiary", "monitor", "maintain"]);
-const confidence = new Set(["high", "provisional", "low", "unresolved"]);
+// Topic contracts use Low / Medium / High; the intake contract additionally
+// uses Provisional. Keep all of those distinct from a fabricated score.
+const confidence = new Set(["high", "medium", "provisional", "low", "unresolved"]);
 
 function object(value: unknown): RecordValue | null {
   return value && typeof value === "object" && !Array.isArray(value) ? value as RecordValue : null;
