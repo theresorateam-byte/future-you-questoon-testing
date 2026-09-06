@@ -3,6 +3,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { TARGET_CATALOG_VERSION } from "./intake-orchestrator.ts";
 import { requirementsForTopic, TOPIC_REQUIREMENT_SEEDS } from "./topic-requirements.ts";
 import { validateSourceHandoffDraft } from "./source-contract.ts";
+import { validateInitialPlanDraft } from "./plan-contract.ts";
 
 /**
  * Locked Future You service, kept separate from the legacy future-you-engine.
@@ -259,6 +260,25 @@ Deno.serve(async (req) => {
       return json({ engine: "future-you-locked-v1", result: data, note: "The Source handoff is frozen. No plan has been created yet." });
     }
 
+    if (payload.operation === "validate_initial_plan") {
+      if (!isUuid(payload.intakeInstanceId) || !payload.planDraft || typeof payload.planDraft !== "object" || Array.isArray(payload.planDraft)) {
+        return json({ error: "A valid intakeInstanceId and planDraft object are required." }, 400);
+      }
+      const { data: intake, error: intakeError } = await context.admin.from("intake_instances")
+        .select("id, status, source_snapshot").eq("id", payload.intakeInstanceId).eq("user_id", context.user.id).maybeSingle();
+      if (intakeError) throw intakeError;
+      if (!intake) return json({ error: "Intake not found." }, 404);
+      if (intake.status !== "validated" || !intake.source_snapshot || Object.keys(intake.source_snapshot).length === 0) {
+        return json({ valid: false, stage: "initial_plan", errors: [{ path: "sourceSnapshot", code: "missing", message: "Freeze a validated Source handoff before validating an initial plan." }] });
+      }
+      const validation = validateInitialPlanDraft(payload.planDraft, intake.source_snapshot);
+      return json({
+        ...validation,
+        stage: "initial_plan",
+        note: validation.valid ? "Validated structure only. Plan creation and approval remain a separate step." : "Fix the listed plan fields without introducing unsupported assumptions.",
+      });
+    }
+
     if (payload.operation === "record_intake_answer") {
       if (!isUuid(payload.intakeInstanceId) || typeof payload.informationKey !== "string" || !payload.rawValue || typeof payload.rawValue !== "object" || Array.isArray(payload.rawValue)) {
         return json({ error: "A valid intakeInstanceId, informationKey, and answer object are required." }, 400);
@@ -276,7 +296,7 @@ Deno.serve(async (req) => {
       return json({ engine: "future-you-locked-v1", result: data });
     }
 
-    if (payload.operation !== "contract_status") return json({ error: "Unknown operation. Use contract_status, start_intake, intake_state, record_intake_answer, intake_readiness, source_handoff_preview, validate_source_handoff, or freeze_source_handoff." }, 400);
+    if (payload.operation !== "contract_status") return json({ error: "Unknown operation. Use contract_status, start_intake, intake_state, record_intake_answer, intake_readiness, source_handoff_preview, validate_source_handoff, freeze_source_handoff, or validate_initial_plan." }, 400);
 
     const { data: versions, error } = await context.admin
       .from("future_you_contract_versions")
