@@ -3,7 +3,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { TARGET_CATALOG_VERSION } from "./intake-orchestrator.ts";
 import { requirementsForTopic, TOPIC_REQUIREMENT_SEEDS } from "./topic-requirements.ts";
 import { validateSourceHandoffDraft } from "./source-contract.ts";
-import { validateInitialPlanDraft } from "./plan-contract.ts";
+import { validateInitialPlanDraft, validateLivePlanRevision } from "./plan-contract.ts";
 import { deriveInitialPlan } from "./plan-deriver.ts";
 
 /**
@@ -369,7 +369,7 @@ Deno.serve(async (req) => {
         .select("source_snapshot").eq("goal_id", payload.goalId).eq("user_id", context.user.id).eq("status", "validated").order("created_at", { ascending: false }).limit(1).maybeSingle();
       if (sourceError) throw sourceError;
       if (!sourceIntake?.source_snapshot || Object.keys(sourceIntake.source_snapshot).length === 0) return json({ error: "A frozen Source handoff is required." }, 400);
-      const validation = validateInitialPlanDraft(payload.planDraft, sourceIntake.source_snapshot);
+      const validation = validateLivePlanRevision(payload.planDraft, sourceIntake.source_snapshot);
       if (!validation.valid) return json({ valid: false, stage: "live_plan_revision", errors: validation.errors });
       const integrityHash = await sha256Json(payload.planDraft);
       const { data, error } = await context.admin.rpc("future_you_revise_locked_live_plan", { p_user_id: context.user.id, p_goal_id: payload.goalId, p_evidence_id: payload.evidenceId, p_expected_revision: payload.expectedRevision, p_plan: payload.planDraft, p_integrity_hash: integrityHash });
