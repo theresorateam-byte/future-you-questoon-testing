@@ -183,6 +183,24 @@ Deno.serve(async (req) => {
       return json({ readyForSource: blocking.length === 0 && intake.status === "deriving", status: intake.status, nextTarget: intake.next_information_target, blockingRequirements: blocking });
     }
 
+    if (payload.operation === "source_handoff_preview") {
+      if (!isUuid(payload.intakeInstanceId)) return json({ error: "A valid intakeInstanceId is required." }, 400);
+      const { data: intake, error: intakeError } = await context.admin.from("intake_instances")
+        .select("id, goal_id, status, source_snapshot").eq("id", payload.intakeInstanceId).eq("user_id", context.user.id).maybeSingle();
+      if (intakeError) throw intakeError;
+      if (!intake) return json({ error: "Intake not found." }, 404);
+      const [requirementsResult, factsResult, uncertaintiesResult] = await Promise.all([
+        context.admin.from("intake_requirements").select("requirement_key, priority, applicability, resolution, target").eq("intake_instance_id", intake.id).eq("user_id", context.user.id),
+        context.admin.from("intake_facts").select("fact_key, fact_value, status, provenance").eq("intake_instance_id", intake.id).eq("user_id", context.user.id),
+        context.admin.from("intake_uncertainties").select("uncertainty_key, uncertainty_kind, status").eq("intake_instance_id", intake.id).eq("user_id", context.user.id).eq("status", "open"),
+      ]);
+      const error = [requirementsResult.error, factsResult.error, uncertaintiesResult.error].find(Boolean);
+      if (error) throw error;
+      const blockers = (requirementsResult.data ?? []).filter((item) => item.applicability === "active" && ["essential_now", "conditional"].includes(item.priority) && !["satisfied", "provisional", "not_applicable"].includes(item.resolution));
+      if (intake.status !== "deriving" || blockers.length > 0) return json({ ready: false, blockers });
+      return json({ ready: true, handoff: { goalId: intake.goal_id, intakeInstanceId: intake.id, sourceSnapshot: intake.source_snapshot, facts: factsResult.data ?? [], unresolvedUncertainties: uncertaintiesResult.data ?? [] } });
+    }
+
     if (payload.operation === "record_intake_answer") {
       if (!isUuid(payload.intakeInstanceId) || typeof payload.informationKey !== "string" || !payload.rawValue || typeof payload.rawValue !== "object" || Array.isArray(payload.rawValue)) {
         return json({ error: "A valid intakeInstanceId, informationKey, and answer object are required." }, 400);
@@ -200,7 +218,7 @@ Deno.serve(async (req) => {
       return json({ engine: "future-you-locked-v1", result: data });
     }
 
-    if (payload.operation !== "contract_status") return json({ error: "Unknown operation. Use contract_status, start_intake, intake_state, record_intake_answer, or intake_readiness." }, 400);
+    if (payload.operation !== "contract_status") return json({ error: "Unknown operation. Use contract_status, start_intake, intake_state, record_intake_answer, intake_readiness, or source_handoff_preview." }, 400);
 
     const { data: versions, error } = await context.admin
       .from("future_you_contract_versions")
