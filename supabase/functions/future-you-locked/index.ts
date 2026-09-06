@@ -98,6 +98,13 @@ Deno.serve(async (req) => {
       }
 
       const intake = Array.isArray(data) ? data[0] : data;
+      if (intake?.next_information_target?.key === "goal_meaning") {
+        intake.next_information_target = {
+          key: "i1_a2_desired_direction",
+          type: "user_input",
+          reason: "The goal statement establishes intent. Confirm the direction and outcome the user wants before route or readiness decisions.",
+        };
+      }
       return json({ engine: "future-you-locked-v1", intake });
     }
 
