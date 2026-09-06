@@ -75,9 +75,29 @@ Deno.serve(async (req) => {
     if ("error" in context) return context.error;
 
     const payload = await req.json().catch(() => ({}));
-    if (payload.operation !== "contract_status") {
-      return json({ error: "Unknown operation. Use contract_status." }, 400);
+    if (payload.operation === "start_intake") {
+      const goalText = typeof payload.goalText === "string" ? payload.goalText : "";
+      const topicKey = typeof payload.topicKey === "string" ? payload.topicKey : null;
+      const { data, error } = await context.admin.rpc("future_you_start_locked_intake", {
+        p_user_id: context.user.id,
+        p_goal_text: goalText,
+        p_topic_key: topicKey,
+      });
+      if (error) {
+        const clientErrors = new Set([
+          "future_you_goal_text_invalid",
+          "future_you_topic_not_found",
+          "future_you_topic_not_available_for_direct_start",
+        ]);
+        const message = clientErrors.has(error.message) ? error.message : "Unable to start this intake.";
+        return json({ error: message }, 400);
+      }
+
+      const intake = Array.isArray(data) ? data[0] : data;
+      return json({ engine: "future-you-locked-v1", intake });
     }
+
+    if (payload.operation !== "contract_status") return json({ error: "Unknown operation. Use contract_status or start_intake." }, 400);
 
     const { data: versions, error } = await context.admin
       .from("future_you_contract_versions")
