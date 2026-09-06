@@ -1,7 +1,7 @@
 import "@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { TARGET_CATALOG_VERSION } from "./intake-orchestrator.ts";
-import { TOPIC_REQUIREMENT_SEEDS } from "./topic-requirements.ts";
+import { requirementsForTopic, TOPIC_REQUIREMENT_SEEDS } from "./topic-requirements.ts";
 
 /**
  * Locked Future You service, kept separate from the legacy future-you-engine.
@@ -84,6 +84,10 @@ Deno.serve(async (req) => {
     if (payload.operation === "start_intake") {
       const goalText = typeof payload.goalText === "string" ? payload.goalText : "";
       const topicKey = typeof payload.topicKey === "string" ? payload.topicKey : null;
+      const requirementSeeds = requirementsForTopic(topicKey ?? "");
+      if (requirementSeeds.length === 0) {
+        return json({ error: "Choose one approved Future You topic before starting intake." }, 400);
+      }
       const { data, error } = await context.admin.rpc("future_you_start_locked_intake", {
         p_user_id: context.user.id,
         p_goal_text: goalText,
@@ -100,6 +104,17 @@ Deno.serve(async (req) => {
       }
 
       const intake = Array.isArray(data) ? data[0] : data;
+      if (!intake?.intake_instance_id) throw new Error("Future You intake starter returned no intake ID.");
+      const { error: seedError } = await context.admin.rpc("future_you_seed_locked_requirements", {
+        p_user_id: context.user.id,
+        p_intake_instance_id: intake.intake_instance_id,
+        p_requirements: requirementSeeds.map((requirement) => ({
+          requirement_key: requirement.key,
+          priority: requirement.priority,
+          decision_area: requirement.decisionArea,
+        })),
+      });
+      if (seedError) throw seedError;
       if (intake?.next_information_target?.key === "goal_meaning") {
         intake.next_information_target = {
           key: "i1_a2_desired_direction",
