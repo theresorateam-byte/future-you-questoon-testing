@@ -38,7 +38,7 @@ Deno.test("Locked initial plan rejects legacy fixed schedules", () => {
 Deno.test("Locked Live Plan can enter prepare mode with evidence rationale", () => {
   const result = validateLivePlanRevision({
     contractVersion: "locked-v1", sourceReferences: ["normalizedGoal", "safety", "realism", "capacity", "initialMode", "milestone", "guardrails"],
-    goal: { intendedResult: "Build a workable morning routine" }, entryGate: "prepare", mode: "tiny_start", evidenceRationale: "The recorded evidence shows the morning window is unavailable this week.",
+    goal: { intendedResult: "Build a workable morning routine" }, entryGate: "prepare", mode: "tiny_start", adjustmentOutcome: "ease", evidenceRationale: "The recorded evidence shows the morning window is unavailable this week.",
     milestones: ["Restore a workable morning window"], successMarkers: ["A realistic window is identified"], guardrails: ["Keep the step under five minutes"], firstTodayStep: null, prepareAction: { action: "Identify one workable morning window" },
   }, source);
   assert(result.valid);

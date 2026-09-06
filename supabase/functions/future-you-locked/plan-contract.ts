@@ -93,6 +93,7 @@ export function validateLivePlanRevision(draft: Record<string, unknown>, sourceS
   const result = validateInitialPlanDraft(draft, liveSnapshot);
   const errors = result.errors;
   if (!text(draft.evidenceRationale)) errors.push({ path: "evidenceRationale", code: "missing", message: "Explain why the recorded evidence supports this Live Plan change." });
+  if (!["continue", "build", "ease", "switch"].includes(String(draft.adjustmentOutcome))) errors.push({ path: "adjustmentOutcome", code: "invalid", message: "Use Continue, Build, Ease, or Switch." });
   if (!["active", "prepare", "not_ready"].includes(String(draft.entryGate))) errors.push({ path: "entryGate", code: "invalid", message: "Choose a valid entry gate." });
   if (!["tiny_start", "steady_build", "challenge"].includes(String(draft.mode))) errors.push({ path: "mode", code: "invalid", message: "Choose a valid mode." });
   return { valid: errors.length === 0, errors };
