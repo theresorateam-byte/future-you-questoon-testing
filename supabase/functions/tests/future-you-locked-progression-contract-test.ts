@@ -26,3 +26,25 @@ Deno.test("accepts the Medium confidence vocabulary used by topic contracts", ()
   const medium = { ...draft, stateConfidence: { level: "medium", rationale: "Evidence is useful but not broad enough for high confidence." } };
   assertEquals(validateProgressionAssessment(medium, "build_routines_that_work", [evidenceId]).valid, true);
 });
+
+Deno.test("locks relationship assessments to the seven relationship dimensions", () => {
+  const relationship = {
+    ...draft,
+    topicKey: "build_stronger_relationships",
+    currentState: {
+      model: "relationship_dimensions_v1", route: "relationship",
+      units: { understanding: { level: 3 }, responsiveness: { level: 3 } },
+    },
+    roles: [{ key: "understanding", role: "primary" }],
+  };
+  assertEquals(validateProgressionAssessment(relationship, "build_stronger_relationships", [evidenceId]).valid, true);
+});
+
+Deno.test("rejects invented relationship units", () => {
+  const invalid = {
+    ...draft,
+    topicKey: "build_stronger_relationships",
+    currentState: { model: "relationship_dimensions_v1", route: "relationship", units: { chemistry: { level: 5 } } },
+  };
+  assertEquals(validateProgressionAssessment(invalid, "build_stronger_relationships", [evidenceId]).valid, false);
+});

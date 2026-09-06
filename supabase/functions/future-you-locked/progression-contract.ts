@@ -44,6 +44,11 @@ export function validateProgressionAssessment(
 
   const state = object(draft.currentState);
   if (!state || Object.keys(state).length === 0) errors.push({ path: "currentState", code: "missing", message: "Provide the topic-specific current state; do not use a universal score." });
+  if (state) {
+    for (const message of validateControlledTopicState(topicKey, state)) {
+      errors.push({ path: "currentState", code: "invalid", message });
+    }
+  }
   const stateConfidence = object(draft.stateConfidence);
   if (!stateConfidence || !confidence.has(String(stateConfidence.level)) || !text(stateConfidence.rationale)) {
     errors.push({ path: "stateConfidence", code: "missing", message: "Provide a supported confidence level and rationale." });
@@ -86,3 +91,4 @@ export function validateProgressionAssessment(
   }
   return { valid: errors.length === 0, errors };
 }
+import { validateControlledTopicState } from "./topic-progression-config.ts";
