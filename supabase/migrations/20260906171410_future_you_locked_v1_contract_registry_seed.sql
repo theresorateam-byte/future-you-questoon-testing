@@ -1,0 +1,77 @@
+-- Locked Future You source registry. User records bind to these version IDs;
+-- they do not copy product-controlled logic into every goal.
+alter table public.future_you_contract_versions
+  drop constraint if exists future_you_contract_versions_scope_check;
+alter table public.future_you_contract_versions
+  add constraint future_you_contract_versions_scope_check check (scope in (
+    'action_plan_master', 'intake_source', 'i1', 'i2', 'i3',
+    'level_1', 'level_2', 'level_3', 'topic', 'routing'
+  ));
+
+insert into public.future_you_contract_versions
+  (scope, contract_key, version, status, manifest, source_url, locked_at)
+values
+  ('action_plan_master', 'future_you_master_system', '1.2', 'locked',
+   '{"title":"Future You Master System Specification","role":"plan creation, live plan, update and validation authority"}',
+   'https://drive.google.com/open?id=1RW4p8NKmWNKVkvX6KijMxBcTGQIglzUW', now()),
+  ('intake_source', 'source_requirements', '1.1', 'locked',
+   '{"title":"Intake Source Requirements","role":"system-owned derivation and initial handoff"}',
+   'https://docs.google.com/document/d/10jvGeipKz_ECgPDV-cDtluLn3sfu_17FSt6u2FBWLQI/edit', now()),
+  ('i1', 'universal_information_contract', '1.1', 'locked',
+   '{"title":"I1 Universal Information Contract","role":"legitimate raw information families"}',
+   'https://docs.google.com/document/d/1n7DG1hOuJJpov-A6Pi7XYQUNbn9k75UT0W3hbw0cTC8/edit', now()),
+  ('i2', 'goal_specific_information_system', '1', 'locked',
+   '{"title":"I2 Goal-Specific Information System","role":"topic-specific requirements and readiness"}',
+   'https://docs.google.com/document/d/1bms7oMLNgo73JyrlVP51SbQFOWmgprgyZChJCquWlSI/edit', now()),
+  ('i3', 'live_user_intake_state', '1.1', 'locked',
+   '{"title":"I3 Live User Intake State and Handoff","role":"event, fact, requirement and uncertainty ledgers"}',
+   'https://docs.google.com/document/d/1Lfq3Zbx0DAIoPdxnXhbLWj2r4l7MR0PbomMJubAGsiU/edit', now()),
+  ('level_1', 'universal_evidence_contract', '1', 'locked',
+   '{"title":"Level 1 Universal Evidence Contract","role":"universal evidence semantics and boundaries"}',
+   'https://docs.google.com/document/d/1wofsncKKjF-wOyTOWDDL_8An2p-SPli2-mvUum-6RQI/edit', now()),
+  ('level_2', 'full_topic_progression_contract', '1', 'locked',
+   '{"title":"Level 2 Full Topic Progression Contract","role":"topic normalization and implementation boundary"}',
+   'https://docs.google.com/document/d/12cduleUKHZ-jWGU0OgigDvh7s59R4fao1F64IGdhFuY/edit', now()),
+  ('level_3', 'live_user_state_contract', '1', 'locked',
+   '{"title":"Level 3 Live User State Contract","role":"current individual state derived from evidence"}',
+   'https://docs.google.com/document/d/1qvdFrw-7Wp-3py3vbAYIg51QP4e3VNvUv6oqcAvJxlM/edit', now()),
+  ('topic', 'build_stronger_relationships', '1', 'locked',
+   '{"title":"Build Stronger Relationships","user_facing_entry":true}',
+   'https://docs.google.com/document/d/1gmOit3_-dJvSsaCpRF3sxT8FNMHz8143uuAXTUm7Qms/edit', now()),
+  ('topic', 'communicate_better', '1', 'locked',
+   '{"title":"Communicate Better","user_facing_entry":true}',
+   'https://docs.google.com/document/d/17uigi9Va3N5HVcN3N_iTRAo7xVAGzp0CbEvRkdu28xw/edit', now()),
+  ('topic', 'set_better_boundaries', '1', 'locked',
+   '{"title":"Set Better Boundaries","user_facing_entry":true}',
+   'https://docs.google.com/document/d/1C1H1RPZ70g7DBBtksqDejhuRbVgxzmKfFlA_TNYYS3Q/edit', now()),
+  ('topic', 'become_more_confident', '1', 'locked',
+   '{"title":"Become More Confident","user_facing_entry":true}',
+   'https://docs.google.com/document/d/1AxBpLKFCBdzdxVNG2DWw-2aLnSf1w3D8Ug2eyXEagVA/edit', now()),
+  ('topic', 'build_self_trust', '1', 'locked',
+   '{"title":"Build Self-Trust","user_facing_entry":false}',
+   'https://docs.google.com/document/d/17pTQ8St2Gh9K-QU5WCiw-ZSGr5b7o9AAAW0odjmrALI/edit', now()),
+  ('topic', 'manage_my_time_better', '1', 'locked',
+   '{"title":"Manage My Time Better","user_facing_entry":true}',
+   'https://docs.google.com/document/d/1Zi2YGHGOJO_Y8aIqJ-EW3GdkUBhM5tR20Qcqhv53jcA/edit', now()),
+  ('topic', 'stop_putting_things_off', '1', 'locked',
+   '{"title":"Stop Putting Things Off","user_facing_entry":true}',
+   'https://docs.google.com/document/d/1Br9IvV-gTjcmhCLCYH1IFb-WcWqqjglQBZTy7XYoxL4/edit', now()),
+  ('topic', 'get_my_home_organized', '1', 'locked',
+   '{"title":"Get My Home Organized","user_facing_entry":true}',
+   'https://docs.google.com/document/d/1Z-o7T8rOhN483pMzUaplEivf4vsCmLmpSrIkMdZo84A/edit', now()),
+  ('topic', 'build_routines_that_work', '1', 'locked',
+   '{"title":"Build Routines That Work for Me","user_facing_entry":true}',
+   'https://docs.google.com/document/d/17du1Tm5MBXWV8hbfsvEa56XJxiyFWUi1UpoNnwYjzCo/edit', now()),
+  ('topic', 'feel_more_like_myself', '2', 'locked',
+   '{"title":"Feel More Like Myself","user_facing_entry":true}',
+   'https://docs.google.com/document/d/13aeNA8rtpjuP7Ua2GuRJjbhsqq_PFxWuutqOzUeF70c/edit', now()),
+  ('routing', 'confidence_self_trust', '1', 'locked',
+   '{"title":"Confidence and Self-Trust Routing"}',
+   'https://docs.google.com/document/d/1nGOqPAG275VL8FQHxymHd4otcHD-D6m1QCpCJa8eczw/edit', now()),
+  ('routing', 'time_procrastination', '1', 'locked',
+   '{"title":"Time and Procrastination Routing"}',
+   'https://docs.google.com/document/d/136GZPZrxdFkyJtCPRQAMvjtdwSyB6kaDDtjCE3Bzy2Q/edit', now()),
+  ('routing', 'home_routines', '1', 'locked',
+   '{"title":"Home and Routines Routing"}',
+   'https://docs.google.com/document/d/1B7Eq1ktqF1bK-rMhy1CWIrGptx7NsJhdUB8k6mmxIkA/edit', now())
+on conflict (scope, contract_key, version) do nothing;
