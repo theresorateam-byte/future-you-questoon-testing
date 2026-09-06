@@ -27,6 +27,24 @@ export const TOPIC_PROGRESSION_CONFIGS: Record<string, TopicConfig> = {
       },
     },
   },
+  manage_my_time_better: {
+    model: "time_architecture_v1",
+    routes: {
+      time_management: {
+        units: ["time_capacity_awareness", "priority_scope_control", "planning_allocation", "capture_externalization", "time_protection_efficiency", "adaptation_recovery"],
+        numberedStates: true,
+      },
+    },
+  },
+  stop_putting_things_off: {
+    model: "unnecessary_delay_v1",
+    routes: {
+      procrastination: {
+        units: ["delay_recognition_causal_clarity", "startability", "barrier_resolution", "persistence_reentry", "sustainable_follow_through"],
+        numberedStates: true,
+      },
+    },
+  },
   build_stronger_relationships: {
     model: "relationship_dimensions_v1",
     routes: {

@@ -73,3 +73,20 @@ Deno.test("uses the five locked self-trust dimensions", () => {
   };
   assertEquals(validateProgressionAssessment(selfTrust, "build_self_trust", [evidenceId]).valid, true);
 });
+
+Deno.test("keeps Time and Putting Things Off as separate causal models", () => {
+  const time = {
+    ...draft,
+    topicKey: "manage_my_time_better",
+    currentState: { model: "time_architecture_v1", route: "time_management", units: { planning_allocation: { level: 2 } } },
+    roles: [{ key: "planning_allocation", role: "primary" }],
+  };
+  const delay = {
+    ...draft,
+    topicKey: "stop_putting_things_off",
+    currentState: { model: "unnecessary_delay_v1", route: "procrastination", units: { startability: { level: 2 } } },
+    roles: [{ key: "startability", role: "primary" }],
+  };
+  assertEquals(validateProgressionAssessment(time, "manage_my_time_better", [evidenceId]).valid, true);
+  assertEquals(validateProgressionAssessment(delay, "stop_putting_things_off", [evidenceId]).valid, true);
+});
