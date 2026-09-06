@@ -312,6 +312,19 @@ Deno.serve(async (req) => {
       return json({ engine: "future-you-locked-v1", result: data, integrityHash, note: "Original Plan is immutable. Live Plan begins at revision 1." });
     }
 
+    if (payload.operation === "plan_state") {
+      if (!isUuid(payload.goalId)) return json({ error: "A valid goalId is required." }, 400);
+      const [originalResult, liveResult, l3Result] = await Promise.all([
+        context.admin.from("original_action_plans").select("id, plan, schema_version, prompt_version, engine_version, integrity_hash, created_at").eq("goal_id", payload.goalId).eq("user_id", context.user.id).maybeSingle(),
+        context.admin.from("live_action_plans").select("id, plan, revision, completed_checksum, source_event_id, created_at, updated_at").eq("goal_id", payload.goalId).eq("user_id", context.user.id).maybeSingle(),
+        context.admin.from("progression_l3_states").select("state, state_confidence, roles, unresolved, next_evidence_target, audit_status, revision, updated_at").eq("goal_id", payload.goalId).eq("user_id", context.user.id).maybeSingle(),
+      ]);
+      const queryError = [originalResult.error, liveResult.error, l3Result.error].find(Boolean);
+      if (queryError) throw queryError;
+      if (!originalResult.data || !liveResult.data) return json({ error: "No Locked v1 plan was found for this goal." }, 404);
+      return json({ engine: "future-you-locked-v1", originalPlan: originalResult.data, livePlan: liveResult.data, l3State: l3Result.data ?? null });
+    }
+
     if (payload.operation === "record_intake_answer") {
       if (!isUuid(payload.intakeInstanceId) || typeof payload.informationKey !== "string" || !payload.rawValue || typeof payload.rawValue !== "object" || Array.isArray(payload.rawValue)) {
         return json({ error: "A valid intakeInstanceId, informationKey, and answer object are required." }, 400);
@@ -329,7 +342,7 @@ Deno.serve(async (req) => {
       return json({ engine: "future-you-locked-v1", result: data });
     }
 
-    if (payload.operation !== "contract_status") return json({ error: "Unknown operation. Use contract_status, start_intake, intake_state, record_intake_answer, intake_readiness, source_handoff_preview, validate_source_handoff, freeze_source_handoff, validate_initial_plan, or approve_initial_plan." }, 400);
+    if (payload.operation !== "contract_status") return json({ error: "Unknown operation. Use contract_status, start_intake, intake_state, record_intake_answer, intake_readiness, source_handoff_preview, validate_source_handoff, freeze_source_handoff, validate_initial_plan, approve_initial_plan, or plan_state." }, 400);
 
     const { data: versions, error } = await context.admin
       .from("future_you_contract_versions")
