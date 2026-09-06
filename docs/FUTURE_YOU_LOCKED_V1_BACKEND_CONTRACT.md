@@ -116,10 +116,14 @@ The `future-you-locked` Edge Function requires an authenticated, active tester. 
 4. `derive_initial_plan` → produces a non-persisted OpenAI draft from the frozen handoff; `validate_initial_plan` checks it.
 5. `approve_initial_plan` → saves immutable Original Plan, Live Plan revision 1, and an L3 seed.
 6. `record_evidence` / `evidence_state` → preserves user evidence and its applications.
-7. `revise_live_plan` → requires an evidence ID and expected revision; it never changes the Original Plan.
-8. `plan_state` → reads Original Plan, current Live Plan, and L3 state for the signed-in owner.
+7. `validate_progression_assessment` → checks that an L3 interpretation cites only this goal's evidence, preserves uncertainty, uses the locked topic's controlled units, and makes only a plan recommendation.
+8. `apply_progression_assessment` → writes an append-only L3 assessment plus a new L3 state revision. It cannot change either plan.
+9. `revise_live_plan` → requires an evidence ID and expected revision; it never changes the Original Plan.
+10. `plan_state` → reads Original Plan, current Live Plan, and L3 state for the signed-in owner.
 
-For an end-to-end test, use one signed-in tester, begin with `build_routines_that_work`, complete all listed requirements, then run the operations in the order above. Verify an unauthenticated request receives `401`, another user cannot read the goal, and a stale Live Plan revision is rejected.
+The topic interpreter has controlled schemas for all ten locked topics. A submitted assessment cannot invent a named unit in these systems: Relationships, Communication, Boundaries, Confidence, Self-Trust, Time, Procrastination, Home Organization, Routines, or Feel More Like Myself. Confidence is context-by-dimension, and Feel More Like Myself retains its separate State and Identity routes.
+
+For an end-to-end test, use one signed-in tester, begin with `build_routines_that_work`, complete all listed requirements, then run the operations in the order above. Before revising a plan, record evidence, validate a progression assessment, apply it with the current L3 revision, and verify that a stale assessment revision is rejected. Verify an unauthenticated request receives `401`, another user cannot read the goal, and a stale Live Plan revision is rejected.
 
 ## Migration principles
 
