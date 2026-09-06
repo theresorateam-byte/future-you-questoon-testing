@@ -151,7 +151,7 @@ Deno.serve(async (req) => {
 
       const [facts, requirements, uncertainties, candidates] = await Promise.all([
         context.admin.from("intake_facts").select("fact_key, fact_value, status, stability, current_event_id, provenance, updated_at").eq("intake_instance_id", intake.id).eq("user_id", context.user.id).order("fact_key"),
-        context.admin.from("intake_requirements").select("requirement_key, priority, applicability, resolution, activation_reason, supporting_fact_ids, updated_at").eq("intake_instance_id", intake.id).eq("user_id", context.user.id).order("requirement_key"),
+        context.admin.from("intake_requirements").select("requirement_key, priority, applicability, resolution, activation_reason, target, supporting_fact_ids, updated_at").eq("intake_instance_id", intake.id).eq("user_id", context.user.id).order("requirement_key"),
         context.admin.from("intake_uncertainties").select("uncertainty_key, uncertainty_kind, status, related_event_ids, resolution_note, created_at, resolved_at").eq("intake_instance_id", intake.id).eq("user_id", context.user.id).order("created_at"),
         context.admin.from("route_candidate_evidence").select("candidate_topic_key, candidate_role, evidence_event_id, rationale, status, created_at").eq("intake_instance_id", intake.id).eq("user_id", context.user.id).order("created_at"),
       ]);
@@ -168,6 +168,19 @@ Deno.serve(async (req) => {
           routeCandidates: candidates.data ?? [],
         },
       });
+    }
+
+    if (payload.operation === "intake_readiness") {
+      if (!isUuid(payload.intakeInstanceId)) return json({ error: "A valid intakeInstanceId is required." }, 400);
+      const { data: intake, error: intakeError } = await context.admin.from("intake_instances")
+        .select("id, status, next_information_target").eq("id", payload.intakeInstanceId).eq("user_id", context.user.id).maybeSingle();
+      if (intakeError) throw intakeError;
+      if (!intake) return json({ error: "Intake not found." }, 404);
+      const { data: requirements, error: requirementsError } = await context.admin.from("intake_requirements")
+        .select("requirement_key, priority, applicability, resolution").eq("intake_instance_id", intake.id).eq("user_id", context.user.id);
+      if (requirementsError) throw requirementsError;
+      const blocking = (requirements ?? []).filter((item) => item.applicability === "active" && ["essential_now", "conditional"].includes(item.priority) && !["satisfied", "provisional", "not_applicable"].includes(item.resolution));
+      return json({ readyForSource: blocking.length === 0 && intake.status === "deriving", status: intake.status, nextTarget: intake.next_information_target, blockingRequirements: blocking });
     }
 
     if (payload.operation === "record_intake_answer") {
@@ -187,7 +200,7 @@ Deno.serve(async (req) => {
       return json({ engine: "future-you-locked-v1", result: data });
     }
 
-    if (payload.operation !== "contract_status") return json({ error: "Unknown operation. Use contract_status, start_intake, intake_state, or record_intake_answer." }, 400);
+    if (payload.operation !== "contract_status") return json({ error: "Unknown operation. Use contract_status, start_intake, intake_state, record_intake_answer, or intake_readiness." }, 400);
 
     const { data: versions, error } = await context.admin
       .from("future_you_contract_versions")
