@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Future You Test Console</title>
+    <style>
+      :root { color-scheme: dark; font-family: Inter, system-ui, sans-serif; background: #0d1320; color: #edf2ff; }
+      body { max-width: 920px; margin: 0 auto; padding: 32px 18px 80px; }
+      h1 { margin-bottom: 4px; } .subtle { color: #b7c2dc; line-height: 1.5; }
+      section { background: #151e30; border: 1px solid #2a3957; border-radius: 12px; margin: 20px 0; padding: 20px; }
+      label { display: block; font-weight: 650; margin: 12px 0 6px; }
+      input, select, textarea, button { box-sizing: border-box; font: inherit; border-radius: 8px; }
+      input, select, textarea { width: 100%; padding: 10px; color: inherit; background: #0d1320; border: 1px solid #415373; }
+      textarea { min-height: 210px; font: 13px ui-monospace, SFMono-Regular, Consolas, monospace; }
+      button { cursor: pointer; border: 0; padding: 10px 14px; background: #70e1bf; color: #07251d; font-weight: 750; margin: 10px 8px 0 0; }
+      button.secondary { background: #293956; color: #e7edff; } button:disabled { opacity: .55; cursor: wait; }
+      .status { border-left: 4px solid #70e1bf; padding: 10px 12px; background: #102a29; white-space: pre-wrap; }
+      .error { border-color: #ff8f8f; background: #381e27; } .hidden { display: none; }
+      .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; } @media (max-width: 600px) { .row { grid-template-columns: 1fr; } }
+    </style>
+  </head>
+  <body>
+    <h1>Future You Test Console</h1>
+    <p class="subtle">A local-only tester interface for the protected Supabase Future You backend. It does not modify the existing Firebase application and never contains a server or OpenAI key.</p>
+
+    <section>
+      <h2>1. Sign in as a tester</h2>
+      <p class="subtle">Use the tester email. A magic link is sent by Supabase; no password is stored here.</p>
+      <div class="row"><div><label for="email">Tester email</label><input id="email" type="email" value="theresorateam@gmail.com" autocomplete="email" /></div><div><label>Session</label><div id="session" class="status">Checking session…</div></div></div>
+      <button id="send-link" type="button">Send sign-in link</button>
+      <button id="sign-out" class="secondary hidden" type="button">Sign out</button>
+    </section>
+
+    <section>
+      <h2>2. Run a protected Future You operation</h2>
+      <p class="subtle">Start with <code>contract_status</code>. The response area shows the exact server result so a tester can follow the staged runbook without directly accessing database tables.</p>
+      <label for="preset">Quick start</label>
+      <select id="preset">
+        <option value="contract_status">Check backend contract</option>
+        <option value="start_intake">Start a Build Routines intake</option>
+        <option value="today_step">Read a Today’s Step (replace goalId)</option>
+        <option value="progress_update_options">Read Progress Update choices (replace goalId)</option>
+        <option value="custom">Custom protected operation</option>
+      </select>
+      <label for="payload">Operation JSON</label>
+      <textarea id="payload" spellcheck="false"></textarea>
+      <button id="run" type="button">Run protected operation</button>
+      <button id="copy" class="secondary" type="button">Copy result</button>
+    </section>
+
+    <section>
+      <h2>Result</h2>
+      <pre id="result" class="status">Sign in, then run a protected operation.</pre>
+    </section>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
