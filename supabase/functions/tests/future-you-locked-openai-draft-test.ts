@@ -27,3 +27,27 @@ Deno.test("model draft boundary rejects incomplete and non-JSON outputs", async 
     globalThis.fetch = originalFetch;
   }
 });
+
+Deno.test("model draft boundary supports the documented output-content fallback", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (() => Promise.resolve(new Response(JSON.stringify({
+    status: "completed",
+    output: [{ type: "message", content: [{ type: "output_text", text: '{"draft":"safe"}' }] }],
+  }), { status: 200 }))) as typeof fetch;
+  try {
+    const result = await requestOpenAiDraft("test-key", { model: "test" }, "AI draft");
+    assertEquals(result.draft, { draft: "safe" });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("model draft boundary never exposes a provider error body", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (() => Promise.resolve(new Response(JSON.stringify({ error: { message: "private intake text must not escape" } }), { status: 429 }))) as typeof fetch;
+  try {
+    await assertRejects(() => requestOpenAiDraft("test-key", { model: "test" }, "AI draft"), Error, "AI draft failed.");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
