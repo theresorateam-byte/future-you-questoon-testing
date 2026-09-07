@@ -117,7 +117,7 @@ The `future-you-locked` Edge Function requires an authenticated, active tester. 
 5. `approve_initial_plan` → saves immutable Original Plan, Live Plan revision 1, and an L3 seed.
 6. `record_evidence` / `evidence_state` → preserves user evidence and its applications.
 7. `progression_assessment_state` → reads the signed-in owner's current L3 state plus its append-only assessment history.
-8. `change_path_state` → reads the signed-in owner's linked Change Path history without merging it into the original intake.
+8. `change_path_state` / `change_path_handoff_context` → read the signed-in owner's linked Change Path history and its prior frozen-source reference plus separate re-entry facts. A Change Path cannot merge histories or create another Original Plan.
 9. `derive_progression_assessment` → sends only the signed-in goal's current L3 state and canonical evidence to the server-side model and returns a non-persisted, locally validated assessment draft. It cannot write Level 3 state or either plan.
 10. `validate_progression_assessment` → checks that an L3 interpretation cites only this goal's evidence, preserves uncertainty, uses the locked topic's controlled units, and makes only a plan recommendation.
 11. `apply_progression_assessment` → writes an append-only L3 assessment plus a new L3 state revision. It cannot change either plan.

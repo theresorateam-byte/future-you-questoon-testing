@@ -283,9 +283,10 @@ Deno.serve(async (req): Promise<Response> => {
         return json({ error: "A valid intakeInstanceId and planDraft object are required." }, 400);
       }
       const { data: intake, error: intakeError } = await context.admin.from("intake_instances")
-        .select("id, status, source_snapshot").eq("id", payload.intakeInstanceId).eq("user_id", context.user.id).maybeSingle();
+        .select("id, intake_kind, status, source_snapshot").eq("id", payload.intakeInstanceId).eq("user_id", context.user.id).maybeSingle();
       if (intakeError) throw intakeError;
       if (!intake) return json({ error: "Intake not found." }, 404);
+      if (intake.intake_kind !== "initial") return json({ error: "Initial-plan validation is not available for a Change Path. A Change Path can only prepare a future-only Live Plan revision." }, 400);
       if (intake.status !== "validated" || !intake.source_snapshot || Object.keys(intake.source_snapshot).length === 0) {
         return json({ valid: false, stage: "initial_plan", errors: [{ path: "sourceSnapshot", code: "missing", message: "Freeze a validated Source handoff before validating an initial plan." }] });
       }
@@ -302,9 +303,10 @@ Deno.serve(async (req): Promise<Response> => {
         return json({ error: "A valid intakeInstanceId and planDraft object are required." }, 400);
       }
       const { data: intake, error: intakeError } = await context.admin.from("intake_instances")
-        .select("id, status, source_snapshot").eq("id", payload.intakeInstanceId).eq("user_id", context.user.id).maybeSingle();
+        .select("id, intake_kind, status, source_snapshot").eq("id", payload.intakeInstanceId).eq("user_id", context.user.id).maybeSingle();
       if (intakeError) throw intakeError;
       if (!intake) return json({ error: "Intake not found." }, 404);
+      if (intake.intake_kind !== "initial") return json({ error: "An Original Plan cannot be approved from a Change Path." }, 400);
       if (intake.status !== "validated" || !intake.source_snapshot || Object.keys(intake.source_snapshot).length === 0) {
         return json({ error: "Freeze a validated Source handoff before approving an initial plan." }, 400);
       }
@@ -326,9 +328,10 @@ Deno.serve(async (req): Promise<Response> => {
 
     if (payload.operation === "derive_initial_plan") {
       if (!isUuid(payload.intakeInstanceId)) return json({ error: "A valid intakeInstanceId is required." }, 400);
-      const { data: intake, error: intakeError } = await context.admin.from("intake_instances").select("source_snapshot, status").eq("id", payload.intakeInstanceId).eq("user_id", context.user.id).maybeSingle();
+      const { data: intake, error: intakeError } = await context.admin.from("intake_instances").select("intake_kind, source_snapshot, status").eq("id", payload.intakeInstanceId).eq("user_id", context.user.id).maybeSingle();
       if (intakeError) throw intakeError;
       if (!intake || intake.status !== "validated" || !intake.source_snapshot || Object.keys(intake.source_snapshot).length === 0) return json({ error: "A frozen Source handoff is required." }, 400);
+      if (intake.intake_kind !== "initial") return json({ error: "Initial-plan derivation is not available for a Change Path. A Change Path can only prepare a future-only Live Plan revision." }, 400);
       const result = await deriveInitialPlan(intake.source_snapshot);
       return json({ engine:"future-you-locked-v1", planDraft:result.plan, usage:result.usage, note:"This is a draft. It is not saved until approved." });
     }
@@ -468,6 +471,33 @@ Deno.serve(async (req): Promise<Response> => {
       return json({ engine: "future-you-locked-v1", changePaths: data ?? [] });
     }
 
+    if (payload.operation === "change_path_handoff_context") {
+      if (!isUuid(payload.goalId) || !isUuid(payload.changePathId)) return json({ error: "A valid goalId and changePathId are required." }, 400);
+      const { data: link, error: linkError } = await context.admin.from("change_path_links")
+        .select("id, prior_intake_instance_id, reentry_intake_instance_id, requested_change, status, created_at")
+        .eq("id", payload.changePathId).eq("goal_id", payload.goalId).eq("user_id", context.user.id).maybeSingle();
+      if (linkError) throw linkError;
+      if (!link) return json({ error: "Change Path not found." }, 404);
+      const [priorResult, reentryResult, factsResult, uncertaintiesResult] = await Promise.all([
+        context.admin.from("intake_instances").select("id, source_snapshot, status, created_at").eq("id", link.prior_intake_instance_id).eq("goal_id", payload.goalId).eq("user_id", context.user.id).maybeSingle(),
+        context.admin.from("intake_instances").select("id, intake_kind, status, readiness, next_information_target, source_snapshot, created_at, updated_at").eq("id", link.reentry_intake_instance_id).eq("goal_id", payload.goalId).eq("user_id", context.user.id).maybeSingle(),
+        context.admin.from("intake_facts").select("fact_key, fact_value, status, stability, current_event_id, provenance, updated_at").eq("intake_instance_id", link.reentry_intake_instance_id).eq("user_id", context.user.id).order("fact_key"),
+        context.admin.from("intake_uncertainties").select("uncertainty_key, uncertainty_kind, status, related_event_ids, resolution_note, created_at, resolved_at").eq("intake_instance_id", link.reentry_intake_instance_id).eq("user_id", context.user.id).order("created_at"),
+      ]);
+      const queryError = [priorResult.error, reentryResult.error, factsResult.error, uncertaintiesResult.error].find(Boolean);
+      if (queryError) throw queryError;
+      if (!priorResult.data || !reentryResult.data) return json({ error: "The Change Path intake context is incomplete." }, 409);
+      return json({
+        engine: "future-you-locked-v1",
+        changePath: link,
+        priorFrozenSource: priorResult.data.source_snapshot ?? null,
+        reentryIntake: reentryResult.data,
+        reentryFacts: factsResult.data ?? [],
+        reentryUncertainties: uncertaintiesResult.data ?? [],
+        note: "The prior Source is reference context only. Re-entry facts remain separate and cannot create another Original Plan.",
+      });
+    }
+
     if (payload.operation === "derive_progression_assessment") {
       if (!isUuid(payload.goalId)) return json({ error: "A valid goalId is required." }, 400);
       const [bindingResult, evidenceResult, stateResult] = await Promise.all([
@@ -570,7 +600,7 @@ Deno.serve(async (req): Promise<Response> => {
       return json({ engine: "future-you-locked-v1", result: data });
     }
 
-    if (payload.operation !== "contract_status") return json({ error: "Unknown operation. Use contract_status, start_intake, start_change_path, intake_state, record_intake_answer, intake_readiness, source_handoff_preview, validate_source_handoff, freeze_source_handoff, validate_initial_plan, derive_initial_plan, approve_initial_plan, plan_state, today_step, progress_update_options, record_progress_update, progress_update_state, record_evidence, evidence_state, progression_assessment_state, change_path_state, derive_progression_assessment, validate_progression_assessment, apply_progression_assessment, or revise_live_plan." }, 400);
+    if (payload.operation !== "contract_status") return json({ error: "Unknown operation. Use contract_status, start_intake, start_change_path, intake_state, record_intake_answer, intake_readiness, source_handoff_preview, validate_source_handoff, freeze_source_handoff, validate_initial_plan, derive_initial_plan, approve_initial_plan, plan_state, today_step, progress_update_options, record_progress_update, progress_update_state, record_evidence, evidence_state, progression_assessment_state, change_path_state, change_path_handoff_context, derive_progression_assessment, validate_progression_assessment, apply_progression_assessment, or revise_live_plan." }, 400);
 
     const { data: versions, error } = await context.admin
       .from("future_you_contract_versions")
