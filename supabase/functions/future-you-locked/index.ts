@@ -21,6 +21,10 @@ import { parseLockedRequestPayload } from "./request-contract.ts";
  * ledgers and acceptance tests are in place.
  */
 const corsHeaders = {
+  // The endpoint authenticates every protected operation from the bearer token;
+  // this permits browser clients (including the local test console) to read
+  // the response after the required OPTIONS preflight succeeds.
+  "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Content-Type": "application/json",
