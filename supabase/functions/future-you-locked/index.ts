@@ -447,6 +447,27 @@ Deno.serve(async (req): Promise<Response> => {
       return json({ engine: "future-you-locked-v1", evidence: evidence ?? [], applications: applications ?? [] });
     }
 
+    if (payload.operation === "progression_assessment_state") {
+      if (!isUuid(payload.goalId)) return json({ error: "A valid goalId is required." }, 400);
+      const [stateResult, assessmentsResult] = await Promise.all([
+        context.admin.from("progression_l3_states").select("state, state_confidence, roles, unresolved, next_evidence_target, audit_status, revision, updated_at").eq("goal_id", payload.goalId).eq("user_id", context.user.id).maybeSingle(),
+        context.admin.from("progression_l3_assessments").select("id, assessment, prior_revision, resulting_revision, created_at").eq("goal_id", payload.goalId).eq("user_id", context.user.id).order("created_at", { ascending: false }).limit(100),
+      ]);
+      const queryError = [stateResult.error, assessmentsResult.error].find(Boolean);
+      if (queryError) throw queryError;
+      if (!stateResult.data) return json({ error: "No Level 3 state exists for this goal." }, 404);
+      return json({ engine: "future-you-locked-v1", currentState: stateResult.data, assessments: assessmentsResult.data ?? [] });
+    }
+
+    if (payload.operation === "change_path_state") {
+      if (!isUuid(payload.goalId)) return json({ error: "A valid goalId is required." }, 400);
+      const { data, error } = await context.admin.from("change_path_links")
+        .select("id, prior_intake_instance_id, reentry_intake_instance_id, requested_change, status, created_at, completed_at")
+        .eq("goal_id", payload.goalId).eq("user_id", context.user.id).order("created_at", { ascending: false }).limit(100);
+      if (error) throw error;
+      return json({ engine: "future-you-locked-v1", changePaths: data ?? [] });
+    }
+
     if (payload.operation === "derive_progression_assessment") {
       if (!isUuid(payload.goalId)) return json({ error: "A valid goalId is required." }, 400);
       const [bindingResult, evidenceResult, stateResult] = await Promise.all([
@@ -549,7 +570,7 @@ Deno.serve(async (req): Promise<Response> => {
       return json({ engine: "future-you-locked-v1", result: data });
     }
 
-    if (payload.operation !== "contract_status") return json({ error: "Unknown operation. Use contract_status, start_intake, start_change_path, intake_state, record_intake_answer, intake_readiness, source_handoff_preview, validate_source_handoff, freeze_source_handoff, validate_initial_plan, derive_initial_plan, approve_initial_plan, plan_state, today_step, progress_update_options, record_progress_update, progress_update_state, record_evidence, evidence_state, derive_progression_assessment, validate_progression_assessment, apply_progression_assessment, or revise_live_plan." }, 400);
+    if (payload.operation !== "contract_status") return json({ error: "Unknown operation. Use contract_status, start_intake, start_change_path, intake_state, record_intake_answer, intake_readiness, source_handoff_preview, validate_source_handoff, freeze_source_handoff, validate_initial_plan, derive_initial_plan, approve_initial_plan, plan_state, today_step, progress_update_options, record_progress_update, progress_update_state, record_evidence, evidence_state, progression_assessment_state, change_path_state, derive_progression_assessment, validate_progression_assessment, apply_progression_assessment, or revise_live_plan." }, 400);
 
     const { data: versions, error } = await context.admin
       .from("future_you_contract_versions")
