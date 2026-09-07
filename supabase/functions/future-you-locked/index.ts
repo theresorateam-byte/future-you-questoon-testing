@@ -11,6 +11,7 @@ import { deriveSourceHandoff } from "./source-deriver.ts";
 import { validateProgressionAssessment } from "./progression-contract.ts";
 import { TOPIC_PROGRESSION_CONFIGS } from "./topic-progression-config.ts";
 import { buildVisibleUpdateChoices, currentTodayStep, validateAdjustmentCommit, validateProgressUpdateDraft } from "./update-contract.ts";
+import { unknownOperationMessage } from "./operation-contract.ts";
 
 /**
  * Locked Future You service, kept separate from the legacy future-you-engine.
@@ -685,7 +686,7 @@ Deno.serve(async (req): Promise<Response> => {
       return json({ engine: "future-you-locked-v1", result: data });
     }
 
-    if (payload.operation !== "contract_status") return json({ error: "Unknown operation. Use contract_status, start_intake, start_change_path, intake_state, record_intake_answer, intake_readiness, source_handoff_preview, derive_source_handoff, validate_source_handoff, freeze_source_handoff, validate_initial_plan, derive_initial_plan, approve_initial_plan, plan_state, today_step, progress_update_options, record_progress_update, progress_update_state, record_evidence, evidence_state, progression_assessment_state, change_path_state, change_path_handoff_context, derive_progression_assessment, validate_progression_assessment, apply_progression_assessment, derive_live_plan_revision, or revise_live_plan." }, 400);
+    if (payload.operation !== "contract_status") return json({ error: unknownOperationMessage() }, 400);
 
     const { data: versions, error } = await context.admin
       .from("future_you_contract_versions")

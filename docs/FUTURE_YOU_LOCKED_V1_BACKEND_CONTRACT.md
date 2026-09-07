@@ -110,6 +110,8 @@ The old single Edge Function is archived as the baseline. Locked v1 will separat
 
 The `future-you-locked` Edge Function requires an authenticated, active tester. The Flutter client sends only the operation payload and its user JWT; all database writes use the server-only service role.
 
+The complete callable operation allow-list is maintained in `supabase/functions/future-you-locked/operation-contract.ts` and covered by a unit test, so an implementation change cannot silently leave the API error contract behind.
+
 1. `start_intake` → creates the goal, bindings, immutable first fact, and topic requirements.
 2. `intake_state` / `record_intake_answer` / `intake_readiness` → completes only active, decision-relevant requirements.
 3. `source_handoff_preview` / `derive_source_handoff` / `validate_source_handoff` / `freeze_source_handoff` → optionally derives a non-persisted, fact-cited draft, then validates and freezes I3 once.
