@@ -5,6 +5,7 @@ import { requirementsForTopic, TOPIC_REQUIREMENT_SEEDS } from "./topic-requireme
 import { validateSourceHandoffDraft } from "./source-contract.ts";
 import { validateInitialPlanDraft, validateLivePlanRevision } from "./plan-contract.ts";
 import { deriveInitialPlan } from "./plan-deriver.ts";
+import { deriveLivePlanRevision } from "./live-plan-deriver.ts";
 import { deriveProgressionAssessment } from "./progression-deriver.ts";
 import { validateProgressionAssessment } from "./progression-contract.ts";
 import { TOPIC_PROGRESSION_CONFIGS } from "./topic-progression-config.ts";
@@ -520,6 +521,39 @@ Deno.serve(async (req): Promise<Response> => {
       return json({ engine: "future-you-locked-v1", assessmentDraft: result.assessment, usage: result.usage, l3Revision: stateResult.data.revision, note: "This is a draft only. It has not changed Level 3 state or the Live Plan." });
     }
 
+    if (payload.operation === "derive_live_plan_revision") {
+      if (!isUuid(payload.goalId) || !isUuid(payload.progressUpdateId) || !isUuid(payload.assessmentId) || !Number.isInteger(payload.expectedRevision)) {
+        return json({ error: "A valid goalId, progressUpdateId, assessmentId, and expectedRevision are required." }, 400);
+      }
+      if (payload.changePathId !== undefined && payload.changePathId !== null && !isUuid(payload.changePathId)) return json({ error: "changePathId must be a valid Change Path ID." }, 400);
+      let changePath: { id: string; reentry_intake_instance_id: string; requested_change: Record<string, unknown>; status: string } | null = null;
+      if (payload.changePathId) {
+        const { data, error } = await context.admin.from("change_path_links").select("id, reentry_intake_instance_id, requested_change, status")
+          .eq("id", payload.changePathId).eq("goal_id", payload.goalId).eq("user_id", context.user.id).maybeSingle();
+        if (error) throw error;
+        if (!data) return json({ error: "Change Path not found." }, 404);
+        changePath = data;
+      }
+      const sourceQuery = context.admin.from("intake_instances").select("source_snapshot, intake_kind, status")
+        .eq("user_id", context.user.id).eq("status", "validated");
+      if (changePath) sourceQuery.eq("id", changePath.reentry_intake_instance_id).eq("goal_id", payload.goalId);
+      else sourceQuery.eq("goal_id", payload.goalId).order("created_at", { ascending: false }).limit(1);
+      const [sourceResult, liveResult, updateResult, assessmentResult, stateResult] = await Promise.all([
+        sourceQuery.maybeSingle(),
+        context.admin.from("live_action_plans").select("plan, revision").eq("goal_id", payload.goalId).eq("user_id", context.user.id).maybeSingle(),
+        context.admin.from("future_you_progress_updates").select("id, canonical_evidence_id, today_step, selected_choice, normalized_state, reason_category, reason_code, variables, optional_note, occurred_at, live_plan_revision").eq("id", payload.progressUpdateId).eq("goal_id", payload.goalId).eq("user_id", context.user.id).maybeSingle(),
+        context.admin.from("progression_l3_assessments").select("id, assessment, resulting_revision").eq("id", payload.assessmentId).eq("goal_id", payload.goalId).eq("user_id", context.user.id).maybeSingle(),
+        context.admin.from("progression_l3_states").select("revision").eq("goal_id", payload.goalId).eq("user_id", context.user.id).maybeSingle(),
+      ]);
+      const queryError = [sourceResult.error, liveResult.error, updateResult.error, assessmentResult.error, stateResult.error].find(Boolean);
+      if (queryError) throw queryError;
+      if (!sourceResult.data?.source_snapshot || Object.keys(sourceResult.data.source_snapshot).length === 0 || !liveResult.data || !updateResult.data || !assessmentResult.data || !stateResult.data) return json({ error: "The required frozen source, Live Plan, Progress Update, assessment, or Level 3 state was not found." }, 404);
+      if (liveResult.data.revision !== payload.expectedRevision || updateResult.data.live_plan_revision !== payload.expectedRevision) return json({ error: "future_you_live_plan_stale" }, 409);
+      if (assessmentResult.data.resulting_revision !== stateResult.data.revision) return json({ error: "future_you_progression_assessment_stale" }, 409);
+      const result = await deriveLivePlanRevision({ sourceSnapshot: sourceResult.data.source_snapshot, currentPlan: liveResult.data.plan, progressUpdate: updateResult.data, assessment: assessmentResult.data.assessment, changePathContext: changePath });
+      return json({ engine: "future-you-locked-v1", planDraft: result.planDraft, livePlanChange: result.livePlanChange, validationResult: result.validationResult, usage: result.usage, note: "This is a draft only. It has not changed the Live Plan or Change Path status." });
+    }
+
     if (payload.operation === "validate_progression_assessment" || payload.operation === "apply_progression_assessment") {
       if (!isUuid(payload.goalId) || !payload.assessment || typeof payload.assessment !== "object" || Array.isArray(payload.assessment)) {
         return json({ error: "A valid goalId and assessment object are required." }, 400);
@@ -613,7 +647,7 @@ Deno.serve(async (req): Promise<Response> => {
       return json({ engine: "future-you-locked-v1", result: data });
     }
 
-    if (payload.operation !== "contract_status") return json({ error: "Unknown operation. Use contract_status, start_intake, start_change_path, intake_state, record_intake_answer, intake_readiness, source_handoff_preview, validate_source_handoff, freeze_source_handoff, validate_initial_plan, derive_initial_plan, approve_initial_plan, plan_state, today_step, progress_update_options, record_progress_update, progress_update_state, record_evidence, evidence_state, progression_assessment_state, change_path_state, change_path_handoff_context, derive_progression_assessment, validate_progression_assessment, apply_progression_assessment, or revise_live_plan." }, 400);
+    if (payload.operation !== "contract_status") return json({ error: "Unknown operation. Use contract_status, start_intake, start_change_path, intake_state, record_intake_answer, intake_readiness, source_handoff_preview, validate_source_handoff, freeze_source_handoff, validate_initial_plan, derive_initial_plan, approve_initial_plan, plan_state, today_step, progress_update_options, record_progress_update, progress_update_state, record_evidence, evidence_state, progression_assessment_state, change_path_state, change_path_handoff_context, derive_progression_assessment, validate_progression_assessment, apply_progression_assessment, derive_live_plan_revision, or revise_live_plan." }, 400);
 
     const { data: versions, error } = await context.admin
       .from("future_you_contract_versions")

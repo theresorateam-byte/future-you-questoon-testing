@@ -124,8 +124,9 @@ The `future-you-locked` Edge Function requires an authenticated, active tester. 
 12. `today_step` / `progress_update_options` → reads the current Live Plan and returns one step plus three step-specific visible choices that normalize internally to Completed, Partly Completed, or Not Today.
 13. `record_progress_update` → atomically saves the immutable raw update and its canonical evidence before any adjustment. A client update ID makes retries idempotent.
 14. `progress_update_state` → reads the append-only update and adjustment ledgers for the signed-in owner.
-15. `revise_live_plan` → requires the saved Progress Update and its current, evidence-citing L3 assessment. Its outcome must match the assessment, all five validation checks must pass, and the completed portion must remain structurally identical. When a validated Change Path is supplied, its committed status changes in the same transaction.
-16. `plan_state` → reads Original Plan, current Live Plan, and L3 state for the signed-in owner.
+15. `derive_live_plan_revision` → sends the signed-in user's frozen source, current Live Plan, recorded Progress Update, and applied L3 assessment to the server-side model. It returns a locally validated, non-persisted future-only revision draft.
+16. `revise_live_plan` → requires the saved Progress Update and its current, evidence-citing L3 assessment. Its outcome must match the assessment, all five validation checks must pass, and the completed portion must remain structurally identical. When a validated Change Path is supplied, its committed status changes in the same transaction.
+17. `plan_state` → reads Original Plan, current Live Plan, and L3 state for the signed-in owner.
 
 The topic interpreter has controlled schemas for all ten locked topics. A submitted assessment cannot invent a named unit in these systems: Relationships, Communication, Boundaries, Confidence, Self-Trust, Time, Procrastination, Home Organization, Routines, or Feel More Like Myself. Confidence is context-by-dimension, and Feel More Like Myself retains its separate State and Identity routes.
 
