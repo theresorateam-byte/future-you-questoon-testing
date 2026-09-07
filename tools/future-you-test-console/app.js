@@ -32,7 +32,32 @@ const guidedFreeze = document.querySelector("#guided-freeze");
 const guidedPlan = document.querySelector("#guided-plan");
 const guidedApprove = document.querySelector("#guided-approve");
 const guidedDraft = document.querySelector("#guided-draft");
+const topicPicker = document.querySelector("#topic-picker");
 let guided = JSON.parse(localStorage.getItem("future-you-guided-test") || "null");
+
+const topics = [
+  ["build_stronger_relationships", "Build stronger relationships", "I want to strengthen an important relationship."],
+  ["communicate_better", "Communicate better", "I want to communicate more clearly in an important situation."],
+  ["set_better_boundaries", "Set better boundaries", "I want to set a boundary I can follow through on."],
+  ["become_more_confident", "Become more confident", "I want to act with more confidence in a specific situation."],
+  ["build_self_trust", "Build self-trust", "I want to trust myself more when making decisions."],
+  ["manage_my_time_better", "Manage my time better", "I want to manage my time in a way that feels realistic."],
+  ["stop_putting_things_off", "Stop putting things off", "I want to stop delaying something important."],
+  ["get_my_home_organized", "Get my home organized", "I want to make one part of my home work better."],
+  ["build_routines_that_work", "Build routines that work", "I want to build a simple routine I can keep this week."],
+  ["feel_more_like_myself", "Feel more like myself", "I want to feel more like myself in daily life."],
+];
+let selectedTopic = "build_routines_that_work";
+
+function renderTopics() {
+  topicPicker.innerHTML = "";
+  for (const [key, label, suggestion] of topics) {
+    const button = document.createElement("button"); button.type = "button"; button.textContent = label;
+    button.classList.toggle("selected", key === selectedTopic);
+    button.addEventListener("click", () => { selectedTopic = key; guidedGoal.value = suggestion; renderTopics(); });
+    topicPicker.append(button);
+  }
+}
 
 const presets = {
   contract_status: { operation: "contract_status" },
@@ -139,8 +164,8 @@ run.addEventListener("click", async () => {
 guidedBegin.addEventListener("click", async () => {
   guidedBegin.disabled = true;
   try {
-    const data = await callFutureYou({ operation: "start_intake", topicKey: "build_routines_that_work", goalText: guidedGoal.value.trim() });
-    guided = { intakeId: data.intake.intake_instance_id, goalId: data.intake.goal_id, nextTarget: data.intake.next_information_target };
+    const data = await callFutureYou({ operation: "start_intake", topicKey: selectedTopic, goalText: guidedGoal.value.trim() });
+    guided = { intakeId: data.intake.intake_instance_id, goalId: data.intake.goal_id, topicKey: selectedTopic, nextTarget: data.intake.next_information_target };
     saveGuided(); renderGuided(); show(result, "Guided intake started successfully.");
   } catch (error) { show(result, error instanceof Error ? error.message : "Unable to start the guided intake.", true); }
   finally { guidedBegin.disabled = false; }
@@ -182,4 +207,5 @@ document.querySelector("#copy").addEventListener("click", async () => {
 
 setPayload();
 refreshSession();
+renderTopics();
 renderGuided();

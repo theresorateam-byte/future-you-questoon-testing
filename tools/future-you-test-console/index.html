@@ -18,6 +18,8 @@
       .status { border-left: 4px solid #70e1bf; padding: 10px 12px; background: #102a29; white-space: pre-wrap; }
       .error { border-color: #ff8f8f; background: #381e27; } .hidden { display: none; }
       .guided-answer { min-height: 110px; font-family: inherit; } .draft { max-height: 520px; overflow: auto; }
+      .topic-picker { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:8px; margin:8px 0 16px; }
+      .topic-picker button { margin:0; text-align:left; background:#20314e; color:#edf2ff; } .topic-picker button.selected { outline:2px solid #70e1bf; background:#17483d; }
       .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; } @media (max-width: 600px) { .row { grid-template-columns: 1fr; } }
     </style>
   </head>
@@ -37,6 +39,8 @@
       <h2>2. Guided product test</h2>
       <p class="subtle">This is the human-readable test path. It stores test answers in your tester account, shows every AI draft before it is saved, and keeps the technical console below for diagnosis.</p>
       <div id="guided-start">
+        <label>Choose what you want to work on</label>
+        <div id="topic-picker" class="topic-picker"></div>
         <label for="guided-goal">What would you like to work on?</label>
         <input id="guided-goal" value="Build a simple routine I can keep this week." />
         <button id="guided-begin" type="button">Begin test intake</button>
