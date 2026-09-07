@@ -13,6 +13,7 @@ import { TOPIC_PROGRESSION_CONFIGS } from "./topic-progression-config.ts";
 import { buildVisibleUpdateChoices, currentTodayStep, validateAdjustmentCommit, validateProgressUpdateDraft } from "./update-contract.ts";
 import { unknownOperationMessage } from "./operation-contract.ts";
 import { parseLockedRequestPayload } from "./request-contract.ts";
+import { deriveIntakeQuestion } from "./intake-question-deriver.ts";
 
 /**
  * Locked Future You service, kept separate from the legacy future-you-engine.
@@ -223,6 +224,21 @@ Deno.serve(async (req): Promise<Response> => {
       if (requirementsError) throw requirementsError;
       const blocking = (requirements ?? []).filter((item) => item.applicability === "active" && ["essential_now", "conditional"].includes(item.priority) && !["satisfied", "provisional", "not_applicable"].includes(item.resolution));
       return json({ readyForSource: blocking.length === 0 && intake.status === "deriving", status: intake.status, nextTarget: intake.next_information_target, blockingRequirements: blocking });
+    }
+
+    if (payload.operation === "derive_intake_question") {
+      if (!isUuid(payload.intakeInstanceId)) return json({ error: "A valid intakeInstanceId is required." }, 400);
+      const { data: intake, error: intakeError } = await context.admin.from("intake_instances")
+        .select("id, goal_id, status, next_information_target").eq("id", payload.intakeInstanceId).eq("user_id", context.user.id).maybeSingle();
+      if (intakeError) throw intakeError;
+      if (!intake || intake.status !== "collecting" || !intake.next_information_target) return json({ error: "There is no active intake question to word." }, 409);
+      const [goalResult, factsResult] = await Promise.all([
+        context.admin.from("goals").select("goal_text").eq("id", intake.goal_id).eq("user_id", context.user.id).maybeSingle(),
+        context.admin.from("intake_facts").select("fact_key, fact_value").eq("intake_instance_id", intake.id).eq("user_id", context.user.id).order("updated_at"),
+      ]);
+      if (goalResult.error || factsResult.error || !goalResult.data) throw goalResult.error ?? factsResult.error ?? new Error("Goal not found.");
+      const result = await deriveIntakeQuestion({ goalText: goalResult.data.goal_text, target: intake.next_information_target, facts: factsResult.data ?? [], safetyIdentifier: await sha256Json(context.user.id) });
+      return json({ engine: "future-you-locked-v1", intakeInstanceId: intake.id, questionDraft: result.question, usage: result.usage, note: "This question wording is a non-persisted draft. The locked intake target remains authoritative." });
     }
 
     if (payload.operation === "source_handoff_preview") {

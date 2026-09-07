@@ -4,6 +4,7 @@ export const LOCKED_OPERATIONS = [
   "start_intake",
   "start_change_path",
   "intake_state",
+  "derive_intake_question",
   "record_intake_answer",
   "intake_readiness",
   "source_handoff_preview",

@@ -24,6 +24,7 @@ const guidedStage = document.querySelector("#guided-stage");
 const guidedQuestionWrap = document.querySelector("#guided-question-wrap");
 const guidedQuestion = document.querySelector("#guided-question");
 const guidedReason = document.querySelector("#guided-reason");
+const guidedOptions = document.querySelector("#guided-options");
 const guidedAnswer = document.querySelector("#guided-answer");
 const guidedSubmit = document.querySelector("#guided-submit");
 const guidedActions = document.querySelector("#guided-actions");
@@ -110,8 +111,11 @@ function renderGuided() {
   const target = guided.nextTarget;
   if (target?.key) {
     guidedStage.textContent = `Intake in progress • ${target.decisionArea || "context"} information`;
-    guidedQuestion.textContent = questionCopy(target);
-    guidedReason.textContent = target.reason || "This answer helps Future You make a realistic plan instead of guessing.";
+    const draftQuestion = guided.questionDraft;
+    guidedQuestion.textContent = draftQuestion?.question || questionCopy(target);
+    guidedReason.textContent = draftQuestion?.whyThisMatters || target.reason || "This answer helps Future You make a realistic plan instead of guessing.";
+    guidedOptions.innerHTML = "";
+    for (const option of draftQuestion?.options || []) { const button = document.createElement("button"); button.type = "button"; button.textContent = option.label; button.addEventListener("click", () => { guidedAnswer.value = option.id === "other" ? "" : option.label; guidedOptions.querySelectorAll("button").forEach((item) => item.classList.remove("selected")); button.classList.add("selected"); }); guidedOptions.append(button); }
     guidedQuestionWrap.classList.remove("hidden"); guidedActions.classList.add("hidden");
   } else {
     guidedStage.textContent = "Intake complete • you can now inspect the AI's Source draft before any plan is made.";
@@ -166,6 +170,7 @@ guidedBegin.addEventListener("click", async () => {
   try {
     const data = await callFutureYou({ operation: "start_intake", topicKey: selectedTopic, goalText: guidedGoal.value.trim() });
     guided = { intakeId: data.intake.intake_instance_id, goalId: data.intake.goal_id, topicKey: selectedTopic, nextTarget: data.intake.next_information_target };
+    guided.questionDraft = (await callFutureYou({ operation: "derive_intake_question", intakeInstanceId: guided.intakeId })).questionDraft;
     saveGuided(); renderGuided(); show(result, "Guided intake started successfully.");
   } catch (error) { show(result, error instanceof Error ? error.message : "Unable to start the guided intake.", true); }
   finally { guidedBegin.disabled = false; }
@@ -175,7 +180,7 @@ guidedSubmit.addEventListener("click", async () => {
   guidedSubmit.disabled = true;
   try {
     const data = await callFutureYou({ operation: "record_intake_answer", intakeInstanceId: guided.intakeId, informationKey: guided.nextTarget.key, rawValue: { answer } });
-    guided.nextTarget = data.result.next_target; guidedAnswer.value = ""; saveGuided(); renderGuided();
+    guided.nextTarget = data.result.next_target; guidedAnswer.value = ""; guided.questionDraft = guided.nextTarget ? (await callFutureYou({ operation: "derive_intake_question", intakeInstanceId: guided.intakeId })).questionDraft : null; saveGuided(); renderGuided();
   } catch (error) { show(result, error instanceof Error ? error.message : "Unable to save this answer.", true); }
   finally { guidedSubmit.disabled = false; }
 });
