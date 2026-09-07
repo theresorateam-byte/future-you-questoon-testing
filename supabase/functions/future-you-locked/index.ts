@@ -710,7 +710,7 @@ Deno.serve(async (req): Promise<Response> => {
       },
     });
   } catch (error) {
-    console.error("future-you-locked failed", error);
+    console.error("future-you-locked request failed", { name: error instanceof Error ? error.name : "UnknownError" });
     return json({ error: "Unable to process this request." }, 500);
   }
 });
