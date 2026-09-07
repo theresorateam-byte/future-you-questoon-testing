@@ -49,7 +49,7 @@ This runbook applies only to the Supabase `future-you-locked` Edge Function. It 
 
 ## Model-data boundary
 
-All derivation calls use the Responses API with `store: false`, enforced centrally even if a future derivation requests otherwise, plus bounded model input, a request deadline, JSON-object output validation, and local Locked v1 contract validation. The only model-side user identifier is a SHA-256 digest; no email or raw Supabase user ID is sent for that purpose. Model/provider error bodies are not written to function logs. Unit coverage exercises completed responses, incomplete responses, malformed JSON, the standard output-content fallback, provider-error redaction, and input-size bounds for every derivation source.
+All derivation calls use the Responses API with `store: false`, enforced centrally even if a future derivation requests otherwise, plus bounded model input, a request deadline, JSON-object output validation, and local Locked v1 contract validation. The only model-side user identifier is a SHA-256 digest; no email or raw Supabase user ID is sent for that purpose. Model/provider error bodies are not written to function logs. Unit coverage exercises completed responses, incomplete responses, malformed JSON, the standard output-content fallback, provider-error redaction, and input-size bounds for every derivation source, including current Level 3 state.
 
 ## Completion evidence
 
