@@ -51,6 +51,10 @@ This runbook applies only to the Supabase `future-you-locked` Edge Function. It 
 
 All derivation calls use the Responses API with `store: false`, enforced centrally even if a future derivation requests otherwise, plus bounded model input, a request deadline, JSON-object output validation, and local Locked v1 contract validation. The only model-side user identifier is a SHA-256 digest; no email or raw Supabase user ID is sent for that purpose. Model/provider error bodies are not written to function logs. Unit coverage exercises completed responses, incomplete responses, malformed JSON, the standard output-content fallback, provider-error redaction, and input-size bounds for every derivation source, including current Level 3 state.
 
+## Future journal, message, and recommendation sources
+
+These sources are intentionally disabled in Locked v1. Do not widen an existing operation to read them. A future release must add a dedicated protected operation, per-category revocable consent, bounded server-side preparation, provenance, and tests before it can use any such source. Meditation recommendations must remain recommendations rather than evidence of a user’s state.
+
 ## Completion evidence
 
 Capture the deployed function version, test-suite output, and one staged authenticated journey covering the initial-plan path, Progress Update path, and Change Path path. The staged authenticated journey is the remaining production-readiness check; it requires a real authorized tester session and must not be simulated with another user's credentials.

@@ -132,6 +132,17 @@ The complete callable operation allow-list is maintained in `supabase/functions/
 
 The topic interpreter has controlled schemas for all ten locked topics. A submitted assessment cannot invent a named unit in these systems: Relationships, Communication, Boundaries, Confidence, Self-Trust, Time, Procrastination, Home Organization, Routines, or Feel More Like Myself. Confidence is context-by-dimension, and Feel More Like Myself retains its separate State and Identity routes.
 
+## Deferred sensitive-context integrations
+
+Journal entries, messages, and meditation recommendations are not part of Locked v1 and must not be silently read by the current engine. When introduced, each integration must remain server-controlled and satisfy all of the following:
+
+- Obtain separate, revocable user consent for each data category and each purpose; Future You planning does not imply consent to read journals or messages.
+- Retrieve only the minimum selected context needed for a specific recommendation or assessment; do not add ambient or background collection.
+- Normalize permitted source material into provenance-bearing evidence or a bounded server-side summary before any derivation. Do not pass a whole journal or message history to a model.
+- Keep recommendation catalog data separate from personal evidence. A meditation recommendation is a recommendation, not proof of a user state.
+- Show the user what category was used, why it was used, and how to revoke access. Record consent and retrieval events separately from immutable Future You progress records.
+- Add an explicit protected Edge Function operation and tests before enabling any new source. Direct browser access to Locked v1 ledgers remains prohibited.
+
 For an end-to-end test, use one signed-in tester, begin with `build_routines_that_work`, complete all listed requirements, then run the operations in the order above. Capture a Progress Update from server-generated choices, validate a progression assessment that cites the returned evidence ID, apply it with the current L3 revision, and revise the Live Plan using both saved record IDs. Verify that an outcome mismatch, a failing validation check, a completed-history change, a stale assessment revision, and a stale Live Plan revision are rejected. Also verify an unauthenticated request receives `401` and another user cannot read the goal.
 
 ## Migration principles
