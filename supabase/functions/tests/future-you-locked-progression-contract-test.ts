@@ -1,5 +1,6 @@
 import { assertEquals } from "jsr:@std/assert@1";
 import { validateProgressionAssessment } from "../future-you-locked/progression-contract.ts";
+import { TOPIC_PROGRESSION_CONFIGS } from "../future-you-locked/topic-progression-config.ts";
 
 const evidenceId = "11111111-1111-4111-8111-111111111111";
 const draft = {
@@ -106,4 +107,12 @@ Deno.test("uses controlled units for communication, boundaries, home, and routin
     };
     assertEquals(validateProgressionAssessment(topicDraft, topicKey, [evidenceId]).valid, true);
   }
+});
+
+Deno.test("contains a controlled model for each approved direct-entry topic", () => {
+  assertEquals(Object.keys(TOPIC_PROGRESSION_CONFIGS).sort(), [
+    "become_more_confident", "build_routines_that_work", "build_self_trust", "build_stronger_relationships",
+    "communicate_better", "feel_more_like_myself", "get_my_home_organized", "manage_my_time_better",
+    "set_better_boundaries", "stop_putting_things_off",
+  ]);
 });

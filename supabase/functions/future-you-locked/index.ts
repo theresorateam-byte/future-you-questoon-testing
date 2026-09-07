@@ -6,6 +6,7 @@ import { validateSourceHandoffDraft } from "./source-contract.ts";
 import { validateInitialPlanDraft, validateLivePlanRevision } from "./plan-contract.ts";
 import { deriveInitialPlan } from "./plan-deriver.ts";
 import { validateProgressionAssessment } from "./progression-contract.ts";
+import { TOPIC_PROGRESSION_CONFIGS } from "./topic-progression-config.ts";
 
 /**
  * Locked Future You service, kept separate from the legacy future-you-engine.
@@ -449,6 +450,7 @@ Deno.serve(async (req) => {
       contract: {
         intakeTargetCatalogVersion: TARGET_CATALOG_VERSION,
         topicRequirementSetCount: Object.keys(TOPIC_REQUIREMENT_SEEDS).length,
+        controlledTopicModelCount: Object.keys(TOPIC_PROGRESSION_CONFIGS).length,
         activeVersionCount: scopes.length,
         topicCount: scopes.filter((scope) => scope === "topic").length,
         routingCount: scopes.filter((scope) => scope === "routing").length,
