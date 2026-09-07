@@ -20,7 +20,7 @@ function outputText(raw: RecordValue): unknown {
  * It deliberately discards provider error details so raw personal input cannot
  * be copied into a function error or log by accident.
  */
-export async function requestOpenAiDraft(apiKey: string, body: RecordValue, label: string) {
+export async function requestOpenAiDraft(apiKey: string, body: RecordValue, label: string, safetyIdentifier?: string) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   let response: Response;
@@ -28,7 +28,7 @@ export async function requestOpenAiDraft(apiKey: string, body: RecordValue, labe
     response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify(safetyIdentifier ? { ...body, safety_identifier: safetyIdentifier } : body),
       signal: controller.signal,
     });
   } catch {

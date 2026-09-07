@@ -254,7 +254,7 @@ Deno.serve(async (req): Promise<Response> => {
       if (queryError) throw queryError;
       const blockers = (requirementsResult.data ?? []).filter((item) => item.applicability === "active" && ["essential_now", "conditional"].includes(item.priority) && !["satisfied", "provisional", "not_applicable"].includes(item.resolution));
       if (intake.status !== "deriving" || blockers.length > 0) return json({ ready: false, blockers, error: "Complete the active intake requirements before deriving a Source handoff." }, 409);
-      const result = await deriveSourceHandoff({ facts: [...(priorFactsResult.data ?? []), ...(factsResult.data ?? [])], unresolvedUncertainties: uncertaintiesResult.data ?? [] });
+      const result = await deriveSourceHandoff({ facts: [...(priorFactsResult.data ?? []), ...(factsResult.data ?? [])], unresolvedUncertainties: uncertaintiesResult.data ?? [], safetyIdentifier: await sha256Json(context.user.id) });
       return json({ engine: "future-you-locked-v1", sourceDraft: result.sourceDraft, usage: result.usage, note: "This is a draft only. It has not frozen a Source handoff or created a plan." });
     }
 
@@ -371,7 +371,7 @@ Deno.serve(async (req): Promise<Response> => {
       if (intakeError) throw intakeError;
       if (!intake || intake.status !== "validated" || !intake.source_snapshot || Object.keys(intake.source_snapshot).length === 0) return json({ error: "A frozen Source handoff is required." }, 400);
       if (intake.intake_kind !== "initial") return json({ error: "Initial-plan derivation is not available for a Change Path. A Change Path can only prepare a future-only Live Plan revision." }, 400);
-      const result = await deriveInitialPlan(intake.source_snapshot);
+      const result = await deriveInitialPlan(intake.source_snapshot, await sha256Json(context.user.id));
       return json({ engine:"future-you-locked-v1", planDraft:result.plan, usage:result.usage, note:"This is a draft. It is not saved until approved." });
     }
 
@@ -554,7 +554,7 @@ Deno.serve(async (req): Promise<Response> => {
       const result = await deriveProgressionAssessment({
         topicKey,
         currentState: stateResult.data,
-        evidence: evidenceResult.data ?? [],
+        evidence: evidenceResult.data ?? [], safetyIdentifier: await sha256Json(context.user.id),
       });
       return json({ engine: "future-you-locked-v1", assessmentDraft: result.assessment, usage: result.usage, l3Revision: stateResult.data.revision, note: "This is a draft only. It has not changed Level 3 state or the Live Plan." });
     }
@@ -588,7 +588,7 @@ Deno.serve(async (req): Promise<Response> => {
       if (!sourceResult.data?.source_snapshot || Object.keys(sourceResult.data.source_snapshot).length === 0 || !liveResult.data || !updateResult.data || !assessmentResult.data || !stateResult.data) return json({ error: "The required frozen source, Live Plan, Progress Update, assessment, or Level 3 state was not found." }, 404);
       if (liveResult.data.revision !== payload.expectedRevision || updateResult.data.live_plan_revision !== payload.expectedRevision) return json({ error: "future_you_live_plan_stale" }, 409);
       if (assessmentResult.data.resulting_revision !== stateResult.data.revision) return json({ error: "future_you_progression_assessment_stale" }, 409);
-      const result = await deriveLivePlanRevision({ sourceSnapshot: sourceResult.data.source_snapshot, currentPlan: liveResult.data.plan, progressUpdate: updateResult.data, assessment: assessmentResult.data.assessment, changePathContext: changePath });
+      const result = await deriveLivePlanRevision({ sourceSnapshot: sourceResult.data.source_snapshot, currentPlan: liveResult.data.plan, progressUpdate: updateResult.data, assessment: assessmentResult.data.assessment, changePathContext: changePath, safetyIdentifier: await sha256Json(context.user.id) });
       return json({ engine: "future-you-locked-v1", planDraft: result.planDraft, livePlanChange: result.livePlanChange, validationResult: result.validationResult, usage: result.usage, note: "This is a draft only. It has not changed the Live Plan or Change Path status." });
     }
 
