@@ -9,10 +9,10 @@ Deno.test("model draft boundary accepts only completed JSON object responses", a
     return Promise.resolve(new Response(JSON.stringify({ status: "completed", output_text: '{"ok":true}', usage: { total_tokens: 4 } }), { status: 200 }));
   }) as typeof fetch;
   try {
-    const result = await requestOpenAiDraft("test-key", { model: "test" }, "AI draft", "hashed-user-id");
+    const result = await requestOpenAiDraft("test-key", { model: "test", store: true }, "AI draft", "hashed-user-id");
     assertEquals(result.draft, { ok: true });
     assertEquals(result.usage, { total_tokens: 4 });
-    assertEquals(requestBody, { model: "test", safety_identifier: "hashed-user-id" });
+    assertEquals(requestBody, { model: "test", store: false, safety_identifier: "hashed-user-id" });
   } finally {
     globalThis.fetch = originalFetch;
   }

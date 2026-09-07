@@ -23,12 +23,15 @@ function outputText(raw: RecordValue): unknown {
 export async function requestOpenAiDraft(apiKey: string, body: RecordValue, label: string, safetyIdentifier?: string) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  // Drafts are never provider-persisted, even if a future caller accidentally
+  // supplies a conflicting request option.
+  const requestBody = { ...body, store: false, ...(safetyIdentifier ? { safety_identifier: safetyIdentifier } : {}) };
   let response: Response;
   try {
     response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify(safetyIdentifier ? { ...body, safety_identifier: safetyIdentifier } : body),
+      body: JSON.stringify(requestBody),
       signal: controller.signal,
     });
   } catch {
