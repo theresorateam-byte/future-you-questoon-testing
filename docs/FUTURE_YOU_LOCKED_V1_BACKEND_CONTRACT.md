@@ -112,7 +112,7 @@ The `future-you-locked` Edge Function requires an authenticated, active tester. 
 
 1. `start_intake` → creates the goal, bindings, immutable first fact, and topic requirements.
 2. `intake_state` / `record_intake_answer` / `intake_readiness` → completes only active, decision-relevant requirements.
-3. `source_handoff_preview` / `validate_source_handoff` / `freeze_source_handoff` → validates and freezes I3 once.
+3. `source_handoff_preview` / `derive_source_handoff` / `validate_source_handoff` / `freeze_source_handoff` → optionally derives a non-persisted, fact-cited draft, then validates and freezes I3 once.
 4. `derive_initial_plan` → produces a non-persisted OpenAI draft from the frozen handoff; `validate_initial_plan` checks it.
 5. `approve_initial_plan` → saves immutable Original Plan, Live Plan revision 1, and an L3 seed.
 6. `record_evidence` / `evidence_state` → preserves user evidence and its applications.

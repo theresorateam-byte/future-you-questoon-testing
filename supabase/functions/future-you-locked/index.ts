@@ -7,6 +7,7 @@ import { validateInitialPlanDraft, validateLivePlanRevision } from "./plan-contr
 import { deriveInitialPlan } from "./plan-deriver.ts";
 import { deriveLivePlanRevision } from "./live-plan-deriver.ts";
 import { deriveProgressionAssessment } from "./progression-deriver.ts";
+import { deriveSourceHandoff } from "./source-deriver.ts";
 import { validateProgressionAssessment } from "./progression-contract.ts";
 import { TOPIC_PROGRESSION_CONFIGS } from "./topic-progression-config.ts";
 import { buildVisibleUpdateChoices, currentTodayStep, validateAdjustmentCommit, validateProgressUpdateDraft } from "./update-contract.ts";
@@ -233,6 +234,28 @@ Deno.serve(async (req): Promise<Response> => {
       const blockers = (requirementsResult.data ?? []).filter((item) => item.applicability === "active" && ["essential_now", "conditional"].includes(item.priority) && !["satisfied", "provisional", "not_applicable"].includes(item.resolution));
       if (intake.status !== "deriving" || blockers.length > 0) return json({ ready: false, blockers });
       return json({ ready: true, handoff: { goalId: intake.goal_id, intakeInstanceId: intake.id, sourceSnapshot: intake.source_snapshot, facts: [...(priorFactsResult.data ?? []).map((fact) => ({ ...fact, intakeInstanceId: intake.parent_intake_instance_id })), ...(factsResult.data ?? []).map((fact) => ({ ...fact, intakeInstanceId: intake.id }))], unresolvedUncertainties: uncertaintiesResult.data ?? [], note: intake.intake_kind === "change_path" ? "Parent facts are reference context; re-entry facts remain separately recorded." : undefined } });
+    }
+
+    if (payload.operation === "derive_source_handoff") {
+      if (!isUuid(payload.intakeInstanceId)) return json({ error: "A valid intakeInstanceId is required." }, 400);
+      const { data: intake, error: intakeError } = await context.admin.from("intake_instances")
+        .select("id, goal_id, intake_kind, parent_intake_instance_id, status").eq("id", payload.intakeInstanceId).eq("user_id", context.user.id).maybeSingle();
+      if (intakeError) throw intakeError;
+      if (!intake) return json({ error: "Intake not found." }, 404);
+      const [requirementsResult, factsResult, uncertaintiesResult, priorFactsResult] = await Promise.all([
+        context.admin.from("intake_requirements").select("requirement_key, priority, applicability, resolution").eq("intake_instance_id", intake.id).eq("user_id", context.user.id),
+        context.admin.from("intake_facts").select("fact_key, fact_value, status, stability, provenance, intake_instance_id").eq("intake_instance_id", intake.id).eq("user_id", context.user.id).order("fact_key"),
+        context.admin.from("intake_uncertainties").select("uncertainty_key, uncertainty_kind, status").eq("intake_instance_id", intake.id).eq("user_id", context.user.id).eq("status", "open").order("created_at"),
+        intake.intake_kind === "change_path" && intake.parent_intake_instance_id
+          ? context.admin.from("intake_facts").select("fact_key, fact_value, status, stability, provenance, intake_instance_id").eq("intake_instance_id", intake.parent_intake_instance_id).eq("user_id", context.user.id).order("fact_key")
+          : Promise.resolve({ data: [], error: null }),
+      ]);
+      const queryError = [requirementsResult.error, factsResult.error, uncertaintiesResult.error, priorFactsResult.error].find(Boolean);
+      if (queryError) throw queryError;
+      const blockers = (requirementsResult.data ?? []).filter((item) => item.applicability === "active" && ["essential_now", "conditional"].includes(item.priority) && !["satisfied", "provisional", "not_applicable"].includes(item.resolution));
+      if (intake.status !== "deriving" || blockers.length > 0) return json({ ready: false, blockers, error: "Complete the active intake requirements before deriving a Source handoff." }, 409);
+      const result = await deriveSourceHandoff({ facts: [...(priorFactsResult.data ?? []), ...(factsResult.data ?? [])], unresolvedUncertainties: uncertaintiesResult.data ?? [] });
+      return json({ engine: "future-you-locked-v1", sourceDraft: result.sourceDraft, usage: result.usage, note: "This is a draft only. It has not frozen a Source handoff or created a plan." });
     }
 
     if (payload.operation === "validate_source_handoff") {
@@ -662,7 +685,7 @@ Deno.serve(async (req): Promise<Response> => {
       return json({ engine: "future-you-locked-v1", result: data });
     }
 
-    if (payload.operation !== "contract_status") return json({ error: "Unknown operation. Use contract_status, start_intake, start_change_path, intake_state, record_intake_answer, intake_readiness, source_handoff_preview, validate_source_handoff, freeze_source_handoff, validate_initial_plan, derive_initial_plan, approve_initial_plan, plan_state, today_step, progress_update_options, record_progress_update, progress_update_state, record_evidence, evidence_state, progression_assessment_state, change_path_state, change_path_handoff_context, derive_progression_assessment, validate_progression_assessment, apply_progression_assessment, derive_live_plan_revision, or revise_live_plan." }, 400);
+    if (payload.operation !== "contract_status") return json({ error: "Unknown operation. Use contract_status, start_intake, start_change_path, intake_state, record_intake_answer, intake_readiness, source_handoff_preview, derive_source_handoff, validate_source_handoff, freeze_source_handoff, validate_initial_plan, derive_initial_plan, approve_initial_plan, plan_state, today_step, progress_update_options, record_progress_update, progress_update_state, record_evidence, evidence_state, progression_assessment_state, change_path_state, change_path_handoff_context, derive_progression_assessment, validate_progression_assessment, apply_progression_assessment, derive_live_plan_revision, or revise_live_plan." }, 400);
 
     const { data: versions, error } = await context.admin
       .from("future_you_contract_versions")
