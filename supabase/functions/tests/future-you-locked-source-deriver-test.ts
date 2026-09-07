@@ -12,3 +12,15 @@ Deno.test("source handoff derivation minimizes and bounds raw intake data", () =
   assertStringIncludes(String((prepared.facts[0].value as Record<string, unknown>).answer), "…");
   assertEquals((prepared.facts[0].value as Record<string, any>).nested.a.b.c.d, "[truncated: nested data]");
 });
+
+Deno.test("source handoff derivation prefers re-entry facts over duplicate parent keys", () => {
+  const prepared = prepareSourceHandoffInput([
+    { fact_key: "current_capacity", fact_value: "parent value", intake_instance_id: "parent" },
+    { fact_key: "current_capacity", fact_value: "re-entry value", intake_instance_id: "re-entry" },
+    { fact_key: "goal_meaning", fact_value: "still valid", intake_instance_id: "parent" },
+  ], []);
+  assertEquals(prepared.facts.length, 2);
+  assertEquals(prepared.facts[0], {
+    factKey: "current_capacity", value: "re-entry value", status: "undefined", stability: "undefined", provenance: "undefined", intakeInstanceId: "re-entry",
+  });
+});

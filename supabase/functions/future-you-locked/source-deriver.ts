@@ -20,8 +20,14 @@ function boundedValue(value: unknown, depth = 0): unknown {
 
 /** Minimizes raw intake data before its authorized, server-side model use. */
 export function prepareSourceHandoffInput(facts: RecordValue[], uncertainties: RecordValue[]) {
+  // Change Paths pass parent facts first and re-entry facts second. When a
+  // fact key reappears, the re-entry answer is the current source of truth;
+  // never ask the model to choose between two competing values for one cite.
+  const currentFacts = new Map<string, RecordValue>();
+  for (const fact of facts) currentFacts.set(String(fact.fact_key), fact);
+
   return {
-    facts: facts.slice(0, MAX_FACTS).map((fact) => ({
+    facts: [...currentFacts.values()].slice(0, MAX_FACTS).map((fact) => ({
       factKey: String(fact.fact_key),
       value: boundedValue(fact.fact_value),
       status: boundedValue(fact.status),
