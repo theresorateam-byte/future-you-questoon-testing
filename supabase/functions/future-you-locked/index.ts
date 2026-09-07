@@ -12,6 +12,7 @@ import { validateProgressionAssessment } from "./progression-contract.ts";
 import { TOPIC_PROGRESSION_CONFIGS } from "./topic-progression-config.ts";
 import { buildVisibleUpdateChoices, currentTodayStep, validateAdjustmentCommit, validateProgressUpdateDraft } from "./update-contract.ts";
 import { unknownOperationMessage } from "./operation-contract.ts";
+import { parseLockedRequestPayload } from "./request-contract.ts";
 
 /**
  * Locked Future You service, kept separate from the legacy future-you-engine.
@@ -106,7 +107,11 @@ Deno.serve(async (req): Promise<Response> => {
     const context = await authorizedTester(req);
     if (!context.ok) return context.error;
 
-    const payload = await req.json().catch(() => ({}));
+    const parsed = await parseLockedRequestPayload(req);
+    if (!parsed.ok) {
+      return json({ error: parsed.reason === "payload_too_large" ? "Request payload is too large." : "A JSON object request body is required." }, 400);
+    }
+    const payload = parsed.payload;
     if (payload.operation === "start_intake") {
       const goalText = typeof payload.goalText === "string" ? payload.goalText : "";
       const topicKey = typeof payload.topicKey === "string" ? payload.topicKey : null;
