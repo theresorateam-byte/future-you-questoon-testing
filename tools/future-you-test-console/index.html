@@ -17,6 +17,7 @@
       button.secondary { background: #293956; color: #e7edff; } button:disabled { opacity: .55; cursor: wait; }
       .status { border-left: 4px solid #70e1bf; padding: 10px 12px; background: #102a29; white-space: pre-wrap; }
       .error { border-color: #ff8f8f; background: #381e27; } .hidden { display: none; }
+      .guided-answer { min-height: 110px; font-family: inherit; } .draft { max-height: 520px; overflow: auto; }
       .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; } @media (max-width: 600px) { .row { grid-template-columns: 1fr; } }
     </style>
   </head>
@@ -32,8 +33,35 @@
       <button id="sign-out" class="secondary hidden" type="button">Sign out</button>
     </section>
 
+    <section id="guided-test">
+      <h2>2. Guided product test</h2>
+      <p class="subtle">This is the human-readable test path. It stores test answers in your tester account, shows every AI draft before it is saved, and keeps the technical console below for diagnosis.</p>
+      <div id="guided-start">
+        <label for="guided-goal">What would you like to work on?</label>
+        <input id="guided-goal" value="Build a simple routine I can keep this week." />
+        <button id="guided-begin" type="button">Begin test intake</button>
+      </div>
+      <div id="guided-flow" class="hidden">
+        <p id="guided-stage" class="status"></p>
+        <div id="guided-question-wrap">
+          <h3 id="guided-question"></h3>
+          <p id="guided-reason" class="subtle"></p>
+          <label for="guided-answer">Your test answer</label>
+          <textarea id="guided-answer" class="guided-answer" placeholder="Answer in your own words."></textarea>
+          <button id="guided-submit" type="button">Save answer and continue</button>
+        </div>
+        <div id="guided-actions" class="hidden">
+          <button id="guided-source" type="button">Show AI Source draft</button>
+          <button id="guided-freeze" class="secondary hidden" type="button">Accept Source draft for test</button>
+          <button id="guided-plan" class="secondary hidden" type="button">Show AI action-plan draft</button>
+          <button id="guided-approve" class="secondary hidden" type="button">Approve action plan for test</button>
+        </div>
+        <pre id="guided-draft" class="status draft hidden"></pre>
+      </div>
+    </section>
+
     <section>
-      <h2>2. Run a protected Future You operation</h2>
+      <h2>3. Technical console</h2>
       <p class="subtle">Start with <code>contract_status</code>. The response area shows the exact server result so a tester can follow the staged runbook without directly accessing database tables.</p>
       <label for="preset">Quick start</label>
       <select id="preset">
