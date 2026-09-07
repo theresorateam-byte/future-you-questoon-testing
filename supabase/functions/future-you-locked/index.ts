@@ -65,6 +65,16 @@ function clients(authHeader: string) {
   };
 }
 
+async function sourceFactKeys(admin: any, userId: string, intake: { id: string; intake_kind?: string; parent_intake_instance_id?: string | null }): Promise<string[]> {
+  const ids = [intake.id];
+  if (intake.intake_kind === "change_path" && intake.parent_intake_instance_id) ids.unshift(intake.parent_intake_instance_id);
+  const { data, error } = await admin.from("intake_facts").select("fact_key").in("intake_instance_id", ids).eq("user_id", userId);
+  if (error) throw error;
+  const keys: string[] = [];
+  for (const fact of data ?? []) if (typeof fact.fact_key === "string" && fact.fact_key.length > 0) keys.push(fact.fact_key);
+  return [...new Set(keys)];
+}
+
 async function authorizedTester(req: Request) {
   const authorization = req.headers.get("Authorization") ?? "";
   if (!authorization.startsWith("Bearer ")) return { ok: false as const, error: json({ error: "Unauthorized." }, 401) };
@@ -207,19 +217,22 @@ Deno.serve(async (req): Promise<Response> => {
     if (payload.operation === "source_handoff_preview") {
       if (!isUuid(payload.intakeInstanceId)) return json({ error: "A valid intakeInstanceId is required." }, 400);
       const { data: intake, error: intakeError } = await context.admin.from("intake_instances")
-        .select("id, goal_id, status, source_snapshot").eq("id", payload.intakeInstanceId).eq("user_id", context.user.id).maybeSingle();
+        .select("id, goal_id, intake_kind, parent_intake_instance_id, status, source_snapshot").eq("id", payload.intakeInstanceId).eq("user_id", context.user.id).maybeSingle();
       if (intakeError) throw intakeError;
       if (!intake) return json({ error: "Intake not found." }, 404);
-      const [requirementsResult, factsResult, uncertaintiesResult] = await Promise.all([
+      const [requirementsResult, factsResult, uncertaintiesResult, priorFactsResult] = await Promise.all([
         context.admin.from("intake_requirements").select("requirement_key, priority, applicability, resolution, target").eq("intake_instance_id", intake.id).eq("user_id", context.user.id),
         context.admin.from("intake_facts").select("fact_key, fact_value, status, provenance").eq("intake_instance_id", intake.id).eq("user_id", context.user.id),
         context.admin.from("intake_uncertainties").select("uncertainty_key, uncertainty_kind, status").eq("intake_instance_id", intake.id).eq("user_id", context.user.id).eq("status", "open"),
+        intake.intake_kind === "change_path" && intake.parent_intake_instance_id
+          ? context.admin.from("intake_facts").select("fact_key, fact_value, status, provenance").eq("intake_instance_id", intake.parent_intake_instance_id).eq("user_id", context.user.id)
+          : Promise.resolve({ data: [], error: null }),
       ]);
-      const error = [requirementsResult.error, factsResult.error, uncertaintiesResult.error].find(Boolean);
+      const error = [requirementsResult.error, factsResult.error, uncertaintiesResult.error, priorFactsResult.error].find(Boolean);
       if (error) throw error;
       const blockers = (requirementsResult.data ?? []).filter((item) => item.applicability === "active" && ["essential_now", "conditional"].includes(item.priority) && !["satisfied", "provisional", "not_applicable"].includes(item.resolution));
       if (intake.status !== "deriving" || blockers.length > 0) return json({ ready: false, blockers });
-      return json({ ready: true, handoff: { goalId: intake.goal_id, intakeInstanceId: intake.id, sourceSnapshot: intake.source_snapshot, facts: factsResult.data ?? [], unresolvedUncertainties: uncertaintiesResult.data ?? [] } });
+      return json({ ready: true, handoff: { goalId: intake.goal_id, intakeInstanceId: intake.id, sourceSnapshot: intake.source_snapshot, facts: [...(priorFactsResult.data ?? []).map((fact) => ({ ...fact, intakeInstanceId: intake.parent_intake_instance_id })), ...(factsResult.data ?? []).map((fact) => ({ ...fact, intakeInstanceId: intake.id }))], unresolvedUncertainties: uncertaintiesResult.data ?? [], note: intake.intake_kind === "change_path" ? "Parent facts are reference context; re-entry facts remain separately recorded." : undefined } });
     }
 
     if (payload.operation === "validate_source_handoff") {
@@ -227,19 +240,20 @@ Deno.serve(async (req): Promise<Response> => {
         return json({ error: "A valid intakeInstanceId and sourceDraft object are required." }, 400);
       }
       const { data: intake, error: intakeError } = await context.admin.from("intake_instances")
-        .select("id, status").eq("id", payload.intakeInstanceId).eq("user_id", context.user.id).maybeSingle();
+        .select("id, intake_kind, parent_intake_instance_id, status").eq("id", payload.intakeInstanceId).eq("user_id", context.user.id).maybeSingle();
       if (intakeError) throw intakeError;
       if (!intake) return json({ error: "Intake not found." }, 404);
-      const [requirementsResult, factsResult, uncertaintiesResult] = await Promise.all([
+      const [requirementsResult, factsResult, uncertaintiesResult, factKeys] = await Promise.all([
         context.admin.from("intake_requirements").select("requirement_key, priority, applicability, resolution").eq("intake_instance_id", intake.id).eq("user_id", context.user.id),
         context.admin.from("intake_facts").select("fact_key").eq("intake_instance_id", intake.id).eq("user_id", context.user.id),
         context.admin.from("intake_uncertainties").select("uncertainty_key").eq("intake_instance_id", intake.id).eq("user_id", context.user.id).eq("status", "open"),
+        sourceFactKeys(context.admin, context.user.id, intake),
       ]);
       const queryError = [requirementsResult.error, factsResult.error, uncertaintiesResult.error].find(Boolean);
       if (queryError) throw queryError;
       const blockers = (requirementsResult.data ?? []).filter((item) => item.applicability === "active" && ["essential_now", "conditional"].includes(item.priority) && !["satisfied", "provisional", "not_applicable"].includes(item.resolution));
       if (intake.status !== "deriving" || blockers.length > 0) return json({ valid: false, stage: "intake", blockers, errors: [{ path: "intake", code: "missing", message: "Complete the active intake requirements before validating a Source handoff." }] });
-      const validation = validateSourceHandoffDraft(payload.sourceDraft, (factsResult.data ?? []).map((fact) => fact.fact_key));
+      const validation = validateSourceHandoffDraft(payload.sourceDraft, factKeys);
       return json({
         ...validation,
         stage: "source_handoff",
@@ -253,17 +267,18 @@ Deno.serve(async (req): Promise<Response> => {
         return json({ error: "A valid intakeInstanceId and sourceDraft object are required." }, 400);
       }
       const { data: intake, error: intakeError } = await context.admin.from("intake_instances")
-        .select("id, status").eq("id", payload.intakeInstanceId).eq("user_id", context.user.id).maybeSingle();
+        .select("id, intake_kind, parent_intake_instance_id, status").eq("id", payload.intakeInstanceId).eq("user_id", context.user.id).maybeSingle();
       if (intakeError) throw intakeError;
       if (!intake) return json({ error: "Intake not found." }, 404);
-      const [requirementsResult, factsResult] = await Promise.all([
+      const [requirementsResult, factsResult, factKeys] = await Promise.all([
         context.admin.from("intake_requirements").select("requirement_key, priority, applicability, resolution").eq("intake_instance_id", intake.id).eq("user_id", context.user.id),
         context.admin.from("intake_facts").select("fact_key").eq("intake_instance_id", intake.id).eq("user_id", context.user.id),
+        sourceFactKeys(context.admin, context.user.id, intake),
       ]);
       const queryError = [requirementsResult.error, factsResult.error].find(Boolean);
       if (queryError) throw queryError;
       const blockers = (requirementsResult.data ?? []).filter((item) => item.applicability === "active" && ["essential_now", "conditional"].includes(item.priority) && !["satisfied", "provisional", "not_applicable"].includes(item.resolution));
-      const validation = validateSourceHandoffDraft(payload.sourceDraft, (factsResult.data ?? []).map((fact) => fact.fact_key));
+      const validation = validateSourceHandoffDraft(payload.sourceDraft, factKeys);
       if (intake.status !== "deriving" || blockers.length > 0 || !validation.valid) {
         return json({ valid: false, stage: "source_handoff", blockers, errors: intake.status !== "deriving" ? [{ path: "intake", code: "invalid", message: "This intake is not available to freeze." }] : validation.errors });
       }
