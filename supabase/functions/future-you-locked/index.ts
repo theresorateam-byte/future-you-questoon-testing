@@ -1,5 +1,5 @@
-import "@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "npm:@supabase/supabase-js@2";
+import "jsr:@supabase/functions-js@2.115.0/edge-runtime.d.ts";
+import { createClient } from "npm:@supabase/supabase-js@2.115.0";
 import { TARGET_CATALOG_VERSION } from "./intake-orchestrator.ts";
 import { requirementsForTopic, TOPIC_REQUIREMENT_SEEDS } from "./topic-requirements.ts";
 import { validateSourceHandoffDraft } from "./source-contract.ts";
@@ -7,6 +7,7 @@ import { validateInitialPlanDraft, validateLivePlanRevision } from "./plan-contr
 import { deriveInitialPlan } from "./plan-deriver.ts";
 import { validateProgressionAssessment } from "./progression-contract.ts";
 import { TOPIC_PROGRESSION_CONFIGS } from "./topic-progression-config.ts";
+import { buildVisibleUpdateChoices, currentTodayStep, validateAdjustmentCommit, validateProgressUpdateDraft } from "./update-contract.ts";
 
 /**
  * Locked Future You service, kept separate from the legacy future-you-engine.
@@ -64,12 +65,12 @@ function clients(authHeader: string) {
 
 async function authorizedTester(req: Request) {
   const authorization = req.headers.get("Authorization") ?? "";
-  if (!authorization.startsWith("Bearer ")) return { error: json({ error: "Unauthorized." }, 401) };
+  if (!authorization.startsWith("Bearer ")) return { ok: false as const, error: json({ error: "Unauthorized." }, 401) };
 
   const { user, admin } = clients(authorization);
   const token = authorization.slice("Bearer ".length);
   const { data: auth, error: authError } = await user.auth.getUser(token);
-  if (authError || !auth.user) return { error: json({ error: "Unauthorized." }, 401) };
+  if (authError || !auth.user) return { ok: false as const, error: json({ error: "Unauthorized." }, 401) };
 
   const { data: access, error: accessError } = await admin
     .from("tester_access")
@@ -78,18 +79,18 @@ async function authorizedTester(req: Request) {
     .eq("active", true)
     .maybeSingle();
   if (accessError) throw accessError;
-  if (!access) return { error: json({ error: "Tester access is required." }, 403) };
+  if (!access) return { ok: false as const, error: json({ error: "Tester access is required." }, 403) };
 
-  return { admin, user: auth.user, role: access.role };
+  return { ok: true as const, admin, user: auth.user, role: access.role };
 }
 
-Deno.serve(async (req) => {
+Deno.serve(async (req): Promise<Response> => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "Method not allowed." }, 405);
 
   try {
     const context = await authorizedTester(req);
-    if ("error" in context) return context.error;
+    if (!context.ok) return context.error;
 
     const payload = await req.json().catch(() => ({}));
     if (payload.operation === "start_intake") {
@@ -344,6 +345,79 @@ Deno.serve(async (req) => {
       return json({ engine: "future-you-locked-v1", originalPlan: originalResult.data, livePlan: liveResult.data, l3State: l3Result.data ?? null });
     }
 
+    if (payload.operation === "today_step" || payload.operation === "progress_update_options") {
+      if (!isUuid(payload.goalId)) return json({ error: "A valid goalId is required." }, 400);
+      const { data: live, error } = await context.admin.from("live_action_plans")
+        .select("plan, revision, updated_at").eq("goal_id", payload.goalId).eq("user_id", context.user.id).maybeSingle();
+      if (error) throw error;
+      if (!live) return json({ error: "No Locked v1 Live Plan was found for this goal." }, 404);
+      const todayStep = currentTodayStep(live.plan);
+      if (!todayStep) return json({ error: "The current Live Plan has no valid Today’s Step." }, 422);
+      const result: Record<string, unknown> = { engine: "future-you-locked-v1", liveRevision: live.revision, todayStep };
+      if (payload.operation === "progress_update_options") result.visibleChoices = buildVisibleUpdateChoices(live.plan);
+      return json(result);
+    }
+
+    if (payload.operation === "record_progress_update") {
+      if (!isUuid(payload.goalId) || !isUuid(payload.clientUpdateId) || !Number.isInteger(payload.expectedLiveRevision)) {
+        return json({ error: "A valid goalId, clientUpdateId, and expectedLiveRevision are required." }, 400);
+      }
+      if (payload.correctionOfId !== undefined && payload.correctionOfId !== null && !isUuid(payload.correctionOfId)) {
+        return json({ error: "correctionOfId must be a valid progress update ID." }, 400);
+      }
+      const { data: existingUpdate, error: existingUpdateError } = await context.admin.from("future_you_progress_updates")
+        .select("id, goal_id, canonical_evidence_id, normalized_state").eq("user_id", context.user.id).eq("client_update_id", payload.clientUpdateId).maybeSingle();
+      if (existingUpdateError) throw existingUpdateError;
+      if (existingUpdate) {
+        if (existingUpdate.goal_id !== payload.goalId) return json({ error: "future_you_client_update_id_conflict" }, 409);
+        return json({ engine: "future-you-locked-v1", result: { progress_update_id: existingUpdate.id, evidence_id: existingUpdate.canonical_evidence_id, idempotent_replay: true }, normalizedState: existingUpdate.normalized_state });
+      }
+      const { data: live, error: liveError } = await context.admin.from("live_action_plans")
+        .select("plan, revision").eq("goal_id", payload.goalId).eq("user_id", context.user.id).maybeSingle();
+      if (liveError) throw liveError;
+      if (!live) return json({ error: "No Locked v1 Live Plan was found for this goal." }, 404);
+      if (live.revision !== payload.expectedLiveRevision) return json({ error: "future_you_live_plan_stale" }, 409);
+      const todayStep = currentTodayStep(live.plan);
+      const visibleChoices = buildVisibleUpdateChoices(live.plan);
+      if (!todayStep || visibleChoices.length === 0) return json({ error: "The current Live Plan has no valid Today’s Step." }, 422);
+      const updateDraft = {
+        selectedChoiceId: payload.selectedChoiceId,
+        reasonCategory: payload.reasonCategory ?? null,
+        reasonCode: payload.reasonCode,
+        variables: payload.variables,
+        optionalNote: payload.optionalNote ?? null,
+      };
+      const validation = validateProgressUpdateDraft(updateDraft, visibleChoices);
+      if (!validation.valid || !validation.selectedChoice) return json({ valid: false, stage: "progress_update", errors: validation.errors }, 400);
+      const occurredAt = typeof payload.occurredAt === "string" && !Number.isNaN(Date.parse(payload.occurredAt))
+        ? payload.occurredAt
+        : new Date().toISOString();
+      const { data, error } = await context.admin.rpc("future_you_record_locked_progress_update", {
+        p_user_id: context.user.id, p_goal_id: payload.goalId, p_client_update_id: payload.clientUpdateId,
+        p_expected_live_revision: payload.expectedLiveRevision, p_today_step: todayStep,
+        p_visible_choices: visibleChoices, p_selected_choice: validation.selectedChoice,
+        p_normalized_state: validation.selectedChoice.normalizedState, p_reason_category: payload.reasonCategory ?? null,
+        p_reason_code: payload.reasonCode, p_variables: payload.variables, p_optional_note: payload.optionalNote ?? null,
+        p_occurred_at: occurredAt, p_correction_of_id: payload.correctionOfId ?? null,
+      });
+      if (error) {
+        if (error.message === "future_you_live_plan_stale") return json({ error: error.message }, 409);
+        return json({ error: "Unable to record this Progress Update." }, 400);
+      }
+      return json({ engine: "future-you-locked-v1", result: data, normalizedState: validation.selectedChoice.normalizedState, note: "The raw Progress Update and canonical evidence were saved before any plan decision." });
+    }
+
+    if (payload.operation === "progress_update_state") {
+      if (!isUuid(payload.goalId)) return json({ error: "A valid goalId is required." }, 400);
+      const [updatesResult, decisionsResult] = await Promise.all([
+        context.admin.from("future_you_progress_updates").select("id, client_update_id, live_plan_revision, today_step, visible_choices, selected_choice, normalized_state, reason_category, reason_code, variables, optional_note, canonical_evidence_id, correction_of_id, occurred_at, recorded_at").eq("goal_id", payload.goalId).eq("user_id", context.user.id).order("occurred_at", { ascending: false }).limit(100),
+        context.admin.from("future_you_adjustment_decisions").select("id, progress_update_id, progression_assessment_id, outcome, prior_live_revision, resulting_live_revision, live_plan_change, validation_result, live_plan_integrity_hash, created_at").eq("goal_id", payload.goalId).eq("user_id", context.user.id).order("created_at", { ascending: false }).limit(100),
+      ]);
+      const queryError = [updatesResult.error, decisionsResult.error].find(Boolean);
+      if (queryError) throw queryError;
+      return json({ engine: "future-you-locked-v1", updates: updatesResult.data ?? [], decisions: decisionsResult.data ?? [] });
+    }
+
     if (payload.operation === "record_evidence") {
       if (!isUuid(payload.goalId) || typeof payload.sourceKind !== "string" || !payload.content || typeof payload.content !== "object" || Array.isArray(payload.content) || Object.keys(payload.content).length === 0) return json({ error: "A valid goalId, sourceKind, and non-empty evidence content object are required." }, 400);
       if (payload.quality !== undefined && (!payload.quality || typeof payload.quality !== "object" || Array.isArray(payload.quality))) return json({ error: "Evidence quality must be an object." }, 400);
@@ -401,19 +475,38 @@ Deno.serve(async (req) => {
     }
 
     if (payload.operation === "revise_live_plan") {
-      if (!isUuid(payload.goalId) || !isUuid(payload.evidenceId) || !Number.isInteger(payload.expectedRevision) || !payload.planDraft || typeof payload.planDraft !== "object" || Array.isArray(payload.planDraft)) {
-        return json({ error: "A valid goalId, evidenceId, expectedRevision, and planDraft are required." }, 400);
+      if (!isUuid(payload.goalId) || !isUuid(payload.progressUpdateId) || !isUuid(payload.assessmentId) || !Number.isInteger(payload.expectedRevision) || !payload.planDraft || typeof payload.planDraft !== "object" || Array.isArray(payload.planDraft)) {
+        return json({ error: "A valid goalId, progressUpdateId, assessmentId, expectedRevision, and planDraft are required." }, 400);
       }
-      const { data: sourceIntake, error: sourceError } = await context.admin.from("intake_instances")
-        .select("source_snapshot").eq("goal_id", payload.goalId).eq("user_id", context.user.id).eq("status", "validated").order("created_at", { ascending: false }).limit(1).maybeSingle();
-      if (sourceError) throw sourceError;
+      const [sourceResult, liveResult, updateResult, assessmentResult] = await Promise.all([
+        context.admin.from("intake_instances").select("source_snapshot").eq("goal_id", payload.goalId).eq("user_id", context.user.id).eq("status", "validated").order("created_at", { ascending: false }).limit(1).maybeSingle(),
+        context.admin.from("live_action_plans").select("plan, revision").eq("goal_id", payload.goalId).eq("user_id", context.user.id).maybeSingle(),
+        context.admin.from("future_you_progress_updates").select("canonical_evidence_id, live_plan_revision").eq("id", payload.progressUpdateId).eq("goal_id", payload.goalId).eq("user_id", context.user.id).maybeSingle(),
+        context.admin.from("progression_l3_assessments").select("assessment, resulting_revision").eq("id", payload.assessmentId).eq("goal_id", payload.goalId).eq("user_id", context.user.id).maybeSingle(),
+      ]);
+      const queryError = [sourceResult.error, liveResult.error, updateResult.error, assessmentResult.error].find(Boolean);
+      if (queryError) throw queryError;
+      const sourceIntake = sourceResult.data;
       if (!sourceIntake?.source_snapshot || Object.keys(sourceIntake.source_snapshot).length === 0) return json({ error: "A frozen Source handoff is required." }, 400);
-      const validation = validateLivePlanRevision(payload.planDraft, sourceIntake.source_snapshot);
+      if (!liveResult.data || !updateResult.data || !assessmentResult.data) return json({ error: "The current plan, Progress Update, or assessment was not found." }, 404);
+      if (liveResult.data.revision !== payload.expectedRevision || updateResult.data.live_plan_revision !== payload.expectedRevision) return json({ error: "future_you_live_plan_stale" }, 409);
+      const validation = validateLivePlanRevision(payload.planDraft, sourceIntake.source_snapshot, liveResult.data.plan);
       if (!validation.valid) return json({ valid: false, stage: "live_plan_revision", errors: validation.errors });
+      const commitValidation = validateAdjustmentCommit(payload.planDraft, assessmentResult.data.assessment, updateResult.data.canonical_evidence_id, payload.validationResult, payload.livePlanChange);
+      if (!commitValidation.valid) return json({ valid: false, stage: "adjustment_commit", errors: commitValidation.errors });
       const integrityHash = await sha256Json(payload.planDraft);
-      const { data, error } = await context.admin.rpc("future_you_revise_locked_live_plan", { p_user_id: context.user.id, p_goal_id: payload.goalId, p_evidence_id: payload.evidenceId, p_expected_revision: payload.expectedRevision, p_plan: payload.planDraft, p_integrity_hash: integrityHash });
-      if (error) return json({ error: "Unable to revise this Live Plan." }, 400);
-      return json({ engine: "future-you-locked-v1", result: data, integrityHash, note: "The Original Plan was not changed." });
+      const completedChecksum = await sha256Json(payload.planDraft.completedPortion);
+      const { data, error } = await context.admin.rpc("future_you_revise_locked_live_plan_v2", {
+        p_user_id: context.user.id, p_goal_id: payload.goalId, p_progress_update_id: payload.progressUpdateId,
+        p_assessment_id: payload.assessmentId, p_expected_revision: payload.expectedRevision, p_plan: payload.planDraft,
+        p_integrity_hash: integrityHash, p_completed_checksum: completedChecksum, p_live_plan_change: payload.livePlanChange,
+        p_validation_result: payload.validationResult,
+      });
+      if (error) {
+        const conflicts = new Set(["future_you_live_plan_stale", "future_you_progression_assessment_stale", "future_you_progress_update_already_decided"]);
+        return json({ error: conflicts.has(error.message) ? error.message : "Unable to revise this Live Plan." }, conflicts.has(error.message) ? 409 : 400);
+      }
+      return json({ engine: "future-you-locked-v1", result: data, integrityHash, completedChecksum, todayStep: currentTodayStep(payload.planDraft), note: "The Original Plan and completed Live Plan history were not changed." });
     }
 
     if (payload.operation === "record_intake_answer") {
@@ -433,7 +526,7 @@ Deno.serve(async (req) => {
       return json({ engine: "future-you-locked-v1", result: data });
     }
 
-    if (payload.operation !== "contract_status") return json({ error: "Unknown operation. Use contract_status, start_intake, start_change_path, intake_state, record_intake_answer, intake_readiness, source_handoff_preview, validate_source_handoff, freeze_source_handoff, validate_initial_plan, derive_initial_plan, approve_initial_plan, plan_state, record_evidence, evidence_state, validate_progression_assessment, apply_progression_assessment, or revise_live_plan." }, 400);
+    if (payload.operation !== "contract_status") return json({ error: "Unknown operation. Use contract_status, start_intake, start_change_path, intake_state, record_intake_answer, intake_readiness, source_handoff_preview, validate_source_handoff, freeze_source_handoff, validate_initial_plan, derive_initial_plan, approve_initial_plan, plan_state, today_step, progress_update_options, record_progress_update, progress_update_state, record_evidence, evidence_state, validate_progression_assessment, apply_progression_assessment, or revise_live_plan." }, 400);
 
     const { data: versions, error } = await context.admin
       .from("future_you_contract_versions")

@@ -28,6 +28,13 @@ function sourceValue(snapshot: Record<string, unknown>, key: string) {
   return item && text(item.value) ? item.value.trim() : null;
 }
 
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  const item = record(value);
+  if (item) return `{${Object.keys(item).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(item[key])}`).join(",")}}`;
+  return JSON.stringify(value);
+}
+
 export function validateInitialPlanDraft(draft: Record<string, unknown>, sourceSnapshot: Record<string, unknown>) {
   const errors: PlanValidationError[] = [];
   const requiredSourceFields = ["normalizedGoal", "safety", "realism", "capacity", "initialMode", "milestone", "guardrails"];
@@ -69,6 +76,12 @@ export function validateInitialPlanDraft(draft: Record<string, unknown>, sourceS
   if (!Array.isArray(guardrails) || guardrails.length === 0 || !guardrails.every(text)) {
     errors.push({ path: "guardrails", code: "missing", message: "Preserve the Source safety and reality guardrails." });
   }
+  if (!Array.isArray(draft.completedPortion) || draft.completedPortion.length !== 0) {
+    errors.push({ path: "completedPortion", code: "invalid", message: "An initial plan must begin with an empty completed portion." });
+  }
+  if (!Array.isArray(draft.remainingPlan) || draft.remainingPlan.length === 0) {
+    errors.push({ path: "remainingPlan", code: "missing", message: "Provide at least one future plan unit." });
+  }
 
   if (gate === "active") {
     const step = record(draft.firstTodayStep);
@@ -88,13 +101,27 @@ export function validateInitialPlanDraft(draft: Record<string, unknown>, sourceS
 }
 
 /** A Live Plan may change only forward, with recorded evidence; Original Plan never changes. */
-export function validateLivePlanRevision(draft: Record<string, unknown>, sourceSnapshot: Record<string, unknown>) {
+export function validateLivePlanRevision(
+  draft: Record<string, unknown>,
+  sourceSnapshot: Record<string, unknown>,
+  currentLivePlan?: Record<string, unknown>,
+) {
   const liveSnapshot = { ...sourceSnapshot, entryGate: draft.entryGate, initialMode: draft.mode };
-  const result = validateInitialPlanDraft(draft, liveSnapshot);
+  // Reuse the shared plan-shape checks without applying the initial-plan-only
+  // rule that completed history must still be empty.
+  const result = validateInitialPlanDraft({ ...draft, completedPortion: [] }, liveSnapshot);
   const errors = result.errors;
   if (!text(draft.evidenceRationale)) errors.push({ path: "evidenceRationale", code: "missing", message: "Explain why the recorded evidence supports this Live Plan change." });
   if (!["continue", "build", "ease", "switch"].includes(String(draft.adjustmentOutcome))) errors.push({ path: "adjustmentOutcome", code: "invalid", message: "Use Continue, Build, Ease, or Switch." });
   if (!["active", "prepare", "not_ready"].includes(String(draft.entryGate))) errors.push({ path: "entryGate", code: "invalid", message: "Choose a valid entry gate." });
   if (!["tiny_start", "steady_build", "challenge"].includes(String(draft.mode))) errors.push({ path: "mode", code: "invalid", message: "Choose a valid mode." });
+  if (!Array.isArray(draft.completedPortion)) errors.push({ path: "completedPortion", code: "missing", message: "Provide the immutable completed portion, even when it is empty." });
+  if (!Array.isArray(draft.remainingPlan)) errors.push({ path: "remainingPlan", code: "missing", message: "Provide the complete replacement for the remaining future portion." });
+  if (currentLivePlan) {
+    const currentCompleted = Array.isArray(currentLivePlan.completedPortion) ? currentLivePlan.completedPortion : [];
+    if (canonicalJson(draft.completedPortion) !== canonicalJson(currentCompleted)) {
+      errors.push({ path: "completedPortion", code: "mismatch", message: "A Live Plan revision cannot change completed history." });
+    }
+  }
   return { valid: errors.length === 0, errors };
 }

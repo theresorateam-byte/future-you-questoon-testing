@@ -1,4 +1,4 @@
-import { assert, assertEquals } from "jsr:@std/assert@1";
+import { assert, assertEquals } from "jsr:@std/assert@1.0.19";
 import { validateSourceHandoffDraft } from "../future-you-locked/source-contract.ts";
 
 const factKeys = ["routine_target", "routine_dose_window", "routine_time_energy_access_fit"];

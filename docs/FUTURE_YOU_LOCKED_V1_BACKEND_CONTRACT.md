@@ -118,12 +118,15 @@ The `future-you-locked` Edge Function requires an authenticated, active tester. 
 6. `record_evidence` / `evidence_state` → preserves user evidence and its applications.
 7. `validate_progression_assessment` → checks that an L3 interpretation cites only this goal's evidence, preserves uncertainty, uses the locked topic's controlled units, and makes only a plan recommendation.
 8. `apply_progression_assessment` → writes an append-only L3 assessment plus a new L3 state revision. It cannot change either plan.
-9. `revise_live_plan` → requires an evidence ID and expected revision; it never changes the Original Plan.
-10. `plan_state` → reads Original Plan, current Live Plan, and L3 state for the signed-in owner.
+9. `today_step` / `progress_update_options` → reads the current Live Plan and returns one step plus three step-specific visible choices that normalize internally to Completed, Partly Completed, or Not Today.
+10. `record_progress_update` → atomically saves the immutable raw update and its canonical evidence before any adjustment. A client update ID makes retries idempotent.
+11. `progress_update_state` → reads the append-only update and adjustment ledgers for the signed-in owner.
+12. `revise_live_plan` → requires the saved Progress Update and its current, evidence-citing L3 assessment. Its outcome must match the assessment, all five validation checks must pass, and the completed portion must remain structurally identical.
+13. `plan_state` → reads Original Plan, current Live Plan, and L3 state for the signed-in owner.
 
 The topic interpreter has controlled schemas for all ten locked topics. A submitted assessment cannot invent a named unit in these systems: Relationships, Communication, Boundaries, Confidence, Self-Trust, Time, Procrastination, Home Organization, Routines, or Feel More Like Myself. Confidence is context-by-dimension, and Feel More Like Myself retains its separate State and Identity routes.
 
-For an end-to-end test, use one signed-in tester, begin with `build_routines_that_work`, complete all listed requirements, then run the operations in the order above. Before revising a plan, record evidence, validate a progression assessment, apply it with the current L3 revision, and verify that a stale assessment revision is rejected. Verify an unauthenticated request receives `401`, another user cannot read the goal, and a stale Live Plan revision is rejected.
+For an end-to-end test, use one signed-in tester, begin with `build_routines_that_work`, complete all listed requirements, then run the operations in the order above. Capture a Progress Update from server-generated choices, validate a progression assessment that cites the returned evidence ID, apply it with the current L3 revision, and revise the Live Plan using both saved record IDs. Verify that an outcome mismatch, a failing validation check, a completed-history change, a stale assessment revision, and a stale Live Plan revision are rejected. Also verify an unauthenticated request receives `401` and another user cannot read the goal.
 
 ## Migration principles
 
