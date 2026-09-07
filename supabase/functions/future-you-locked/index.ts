@@ -5,6 +5,7 @@ import { requirementsForTopic, TOPIC_REQUIREMENT_SEEDS } from "./topic-requireme
 import { validateSourceHandoffDraft } from "./source-contract.ts";
 import { validateInitialPlanDraft, validateLivePlanRevision } from "./plan-contract.ts";
 import { deriveInitialPlan } from "./plan-deriver.ts";
+import { deriveProgressionAssessment } from "./progression-deriver.ts";
 import { validateProgressionAssessment } from "./progression-contract.ts";
 import { TOPIC_PROGRESSION_CONFIGS } from "./topic-progression-config.ts";
 import { buildVisibleUpdateChoices, currentTodayStep, validateAdjustmentCommit, validateProgressUpdateDraft } from "./update-contract.ts";
@@ -446,6 +447,28 @@ Deno.serve(async (req): Promise<Response> => {
       return json({ engine: "future-you-locked-v1", evidence: evidence ?? [], applications: applications ?? [] });
     }
 
+    if (payload.operation === "derive_progression_assessment") {
+      if (!isUuid(payload.goalId)) return json({ error: "A valid goalId is required." }, 400);
+      const [bindingResult, evidenceResult, stateResult] = await Promise.all([
+        context.admin.from("goal_contract_bindings").select("contract_version_id, future_you_contract_versions!inner(contract_key, scope, status)").eq("goal_id", payload.goalId).eq("user_id", context.user.id).eq("binding_role", "topic").maybeSingle(),
+        context.admin.from("canonical_evidence").select("id, source_kind, evidence_content, quality, context, occurred_at, recorded_at").eq("goal_id", payload.goalId).eq("user_id", context.user.id).order("recorded_at", { ascending: false }).limit(100),
+        context.admin.from("progression_l3_states").select("state, state_confidence, roles, unresolved, next_evidence_target, audit_status, revision, updated_at").eq("goal_id", payload.goalId).eq("user_id", context.user.id).maybeSingle(),
+      ]);
+      const queryError = [bindingResult.error, evidenceResult.error, stateResult.error].find(Boolean);
+      if (queryError) throw queryError;
+      const binding = bindingResult.data as unknown as { future_you_contract_versions?: { contract_key?: string; scope?: string; status?: string } } | null;
+      const topicKey = binding?.future_you_contract_versions?.contract_key;
+      if (!topicKey || binding?.future_you_contract_versions?.scope !== "topic" || binding?.future_you_contract_versions?.status !== "locked") return json({ error: "This goal has no locked topic binding." }, 400);
+      if (!stateResult.data) return json({ error: "No Level 3 state exists for this goal." }, 404);
+      if ((evidenceResult.data ?? []).length === 0) return json({ error: "Canonical evidence is required before an assessment can be derived." }, 422);
+      const result = await deriveProgressionAssessment({
+        topicKey,
+        currentState: stateResult.data,
+        evidence: evidenceResult.data ?? [],
+      });
+      return json({ engine: "future-you-locked-v1", assessmentDraft: result.assessment, usage: result.usage, l3Revision: stateResult.data.revision, note: "This is a draft only. It has not changed Level 3 state or the Live Plan." });
+    }
+
     if (payload.operation === "validate_progression_assessment" || payload.operation === "apply_progression_assessment") {
       if (!isUuid(payload.goalId) || !payload.assessment || typeof payload.assessment !== "object" || Array.isArray(payload.assessment)) {
         return json({ error: "A valid goalId and assessment object are required." }, 400);
@@ -526,7 +549,7 @@ Deno.serve(async (req): Promise<Response> => {
       return json({ engine: "future-you-locked-v1", result: data });
     }
 
-    if (payload.operation !== "contract_status") return json({ error: "Unknown operation. Use contract_status, start_intake, start_change_path, intake_state, record_intake_answer, intake_readiness, source_handoff_preview, validate_source_handoff, freeze_source_handoff, validate_initial_plan, derive_initial_plan, approve_initial_plan, plan_state, today_step, progress_update_options, record_progress_update, progress_update_state, record_evidence, evidence_state, validate_progression_assessment, apply_progression_assessment, or revise_live_plan." }, 400);
+    if (payload.operation !== "contract_status") return json({ error: "Unknown operation. Use contract_status, start_intake, start_change_path, intake_state, record_intake_answer, intake_readiness, source_handoff_preview, validate_source_handoff, freeze_source_handoff, validate_initial_plan, derive_initial_plan, approve_initial_plan, plan_state, today_step, progress_update_options, record_progress_update, progress_update_state, record_evidence, evidence_state, derive_progression_assessment, validate_progression_assessment, apply_progression_assessment, or revise_live_plan." }, 400);
 
     const { data: versions, error } = await context.admin
       .from("future_you_contract_versions")

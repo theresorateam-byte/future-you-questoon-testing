@@ -116,13 +116,14 @@ The `future-you-locked` Edge Function requires an authenticated, active tester. 
 4. `derive_initial_plan` → produces a non-persisted OpenAI draft from the frozen handoff; `validate_initial_plan` checks it.
 5. `approve_initial_plan` → saves immutable Original Plan, Live Plan revision 1, and an L3 seed.
 6. `record_evidence` / `evidence_state` → preserves user evidence and its applications.
-7. `validate_progression_assessment` → checks that an L3 interpretation cites only this goal's evidence, preserves uncertainty, uses the locked topic's controlled units, and makes only a plan recommendation.
-8. `apply_progression_assessment` → writes an append-only L3 assessment plus a new L3 state revision. It cannot change either plan.
-9. `today_step` / `progress_update_options` → reads the current Live Plan and returns one step plus three step-specific visible choices that normalize internally to Completed, Partly Completed, or Not Today.
-10. `record_progress_update` → atomically saves the immutable raw update and its canonical evidence before any adjustment. A client update ID makes retries idempotent.
-11. `progress_update_state` → reads the append-only update and adjustment ledgers for the signed-in owner.
-12. `revise_live_plan` → requires the saved Progress Update and its current, evidence-citing L3 assessment. Its outcome must match the assessment, all five validation checks must pass, and the completed portion must remain structurally identical.
-13. `plan_state` → reads Original Plan, current Live Plan, and L3 state for the signed-in owner.
+7. `derive_progression_assessment` → sends only the signed-in goal's current L3 state and canonical evidence to the server-side model and returns a non-persisted, locally validated assessment draft. It cannot write Level 3 state or either plan.
+8. `validate_progression_assessment` → checks that an L3 interpretation cites only this goal's evidence, preserves uncertainty, uses the locked topic's controlled units, and makes only a plan recommendation.
+9. `apply_progression_assessment` → writes an append-only L3 assessment plus a new L3 state revision. It cannot change either plan.
+10. `today_step` / `progress_update_options` → reads the current Live Plan and returns one step plus three step-specific visible choices that normalize internally to Completed, Partly Completed, or Not Today.
+11. `record_progress_update` → atomically saves the immutable raw update and its canonical evidence before any adjustment. A client update ID makes retries idempotent.
+12. `progress_update_state` → reads the append-only update and adjustment ledgers for the signed-in owner.
+13. `revise_live_plan` → requires the saved Progress Update and its current, evidence-citing L3 assessment. Its outcome must match the assessment, all five validation checks must pass, and the completed portion must remain structurally identical.
+14. `plan_state` → reads Original Plan, current Live Plan, and L3 state for the signed-in owner.
 
 The topic interpreter has controlled schemas for all ten locked topics. A submitted assessment cannot invent a named unit in these systems: Relationships, Communication, Boundaries, Confidence, Self-Trust, Time, Procrastination, Home Organization, Routines, or Feel More Like Myself. Confidence is context-by-dimension, and Feel More Like Myself retains its separate State and Identity routes.
 

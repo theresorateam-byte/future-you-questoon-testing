@@ -1,0 +1,63 @@
+import { validateProgressionAssessment } from "./progression-contract.ts";
+import { TOPIC_PROGRESSION_CONFIGS } from "./topic-progression-config.ts";
+
+type RecordValue = Record<string, unknown>;
+
+// `currentState` is intentionally checked by the local locked-topic validator.
+// Topic routes have different, product-controlled unit vocabularies, so this
+// response schema keeps that nested object flexible while the validator makes
+// the final allow-list decision.
+const schema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["contractVersion", "topicKey", "currentState", "stateConfidence", "causalOwnership", "roles", "unresolved", "nextEvidenceTarget", "evidenceReferences", "planRecommendation"],
+  properties: {
+    contractVersion: { type: "string", const: "locked-v1" },
+    topicKey: { type: "string" },
+    currentState: { type: "object", additionalProperties: true },
+    stateConfidence: { type: "object", additionalProperties: false, required: ["level", "rationale"], properties: { level: { type: "string", enum: ["high", "medium", "provisional", "low", "unresolved"] }, rationale: { type: "string" } } },
+    causalOwnership: { type: "object", additionalProperties: false, required: ["status", "rationale"], properties: { status: { type: "string" }, rationale: { type: "string" } } },
+    roles: { type: "array", items: { type: "object", additionalProperties: false, required: ["key", "role"], properties: { key: { type: "string" }, role: { type: "string", enum: ["primary", "secondary", "tertiary", "monitor", "maintain"] } } } },
+    unresolved: { type: "array", items: {} },
+    nextEvidenceTarget: { type: "object", additionalProperties: false, required: ["question", "decisionRelevance"], properties: { question: { type: "string" }, decisionRelevance: { type: "string" } } },
+    evidenceReferences: { type: "array", items: { type: "object", additionalProperties: false, required: ["evidenceId", "applicationType", "rationale"], properties: { evidenceId: { type: "string" }, applicationType: { type: "string", enum: ["supports", "limits", "contradicts", "requires_follow_up"] }, rationale: { type: "string" } } } },
+    planRecommendation: { anyOf: [{ type: "null" }, { type: "object", additionalProperties: false, required: ["outcome", "rationale"], properties: { outcome: { type: "string", enum: ["continue", "build", "ease", "switch"] }, rationale: { type: "string" } } }] },
+  },
+};
+
+function outputText(raw: any) {
+  return raw.output_text ?? raw.output?.flatMap((item: any) => item.content ?? []).find((item: any) => item.type === "output_text")?.text;
+}
+
+export async function deriveProgressionAssessment(input: {
+  topicKey: string;
+  currentState: RecordValue;
+  evidence: RecordValue[];
+}) {
+  const config = TOPIC_PROGRESSION_CONFIGS[input.topicKey];
+  if (!config) throw new Error("The goal topic has no locked progression configuration.");
+  const evidenceIds = input.evidence.map((item) => String(item.id)).filter(Boolean);
+  if (evidenceIds.length === 0) throw new Error("Canonical evidence is required before an assessment can be derived.");
+  const key = Deno.env.get("OPENAI_API_KEY");
+  if (!key) throw new Error("AI progression assessment derivation is not configured.");
+
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "gpt-5.6-terra",
+      reasoning: { effort: "medium" },
+      store: false,
+      max_output_tokens: 1200,
+      instructions: "Draft a cautious Locked v1 Future You Level 3 progression assessment. Use only the supplied current state and canonical evidence. Do not invent facts, evidence IDs, a route, or controlled units. Preserve uncertainty and contradictions. A planRecommendation is only a proposal and may use only continue, build, ease, or switch. Do not write a plan or claim that any state has been saved.",
+      input: JSON.stringify({ topicKey: input.topicKey, lockedTopicConfiguration: config, currentL3State: input.currentState, canonicalEvidence: input.evidence }),
+      text: { format: { type: "json_schema", name: "locked_progression_assessment", strict: false, schema } },
+    }),
+  });
+  const raw = await response.json();
+  if (!response.ok) throw new Error("AI progression assessment derivation failed.");
+  const assessment = JSON.parse(outputText(raw));
+  const validation = validateProgressionAssessment(assessment, input.topicKey, evidenceIds);
+  if (!validation.valid) throw new Error(`AI assessment did not satisfy Locked v1: ${validation.errors.map((error) => error.path).join(", ")}`);
+  return { assessment, usage: raw.usage ?? null };
+}
