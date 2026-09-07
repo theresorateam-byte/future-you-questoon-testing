@@ -552,8 +552,21 @@ Deno.serve(async (req): Promise<Response> => {
       if (!isUuid(payload.goalId) || !isUuid(payload.progressUpdateId) || !isUuid(payload.assessmentId) || !Number.isInteger(payload.expectedRevision) || !payload.planDraft || typeof payload.planDraft !== "object" || Array.isArray(payload.planDraft)) {
         return json({ error: "A valid goalId, progressUpdateId, assessmentId, expectedRevision, and planDraft are required." }, 400);
       }
+      if (payload.changePathId !== undefined && payload.changePathId !== null && !isUuid(payload.changePathId)) return json({ error: "changePathId must be a valid Change Path ID." }, 400);
+      let changePath: { reentry_intake_instance_id: string } | null = null;
+      if (payload.changePathId) {
+        const { data, error } = await context.admin.from("change_path_links").select("reentry_intake_instance_id")
+          .eq("id", payload.changePathId).eq("goal_id", payload.goalId).eq("user_id", context.user.id).maybeSingle();
+        if (error) throw error;
+        if (!data) return json({ error: "Change Path not found." }, 404);
+        changePath = data;
+      }
+      const sourceQuery = context.admin.from("intake_instances").select("source_snapshot")
+        .eq("user_id", context.user.id).eq("status", "validated");
+      if (changePath) sourceQuery.eq("id", changePath.reentry_intake_instance_id).eq("goal_id", payload.goalId);
+      else sourceQuery.eq("goal_id", payload.goalId).order("created_at", { ascending: false }).limit(1);
       const [sourceResult, liveResult, updateResult, assessmentResult] = await Promise.all([
-        context.admin.from("intake_instances").select("source_snapshot").eq("goal_id", payload.goalId).eq("user_id", context.user.id).eq("status", "validated").order("created_at", { ascending: false }).limit(1).maybeSingle(),
+        sourceQuery.maybeSingle(),
         context.admin.from("live_action_plans").select("plan, revision").eq("goal_id", payload.goalId).eq("user_id", context.user.id).maybeSingle(),
         context.admin.from("future_you_progress_updates").select("canonical_evidence_id, live_plan_revision").eq("id", payload.progressUpdateId).eq("goal_id", payload.goalId).eq("user_id", context.user.id).maybeSingle(),
         context.admin.from("progression_l3_assessments").select("assessment, resulting_revision").eq("id", payload.assessmentId).eq("goal_id", payload.goalId).eq("user_id", context.user.id).maybeSingle(),
@@ -570,14 +583,14 @@ Deno.serve(async (req): Promise<Response> => {
       if (!commitValidation.valid) return json({ valid: false, stage: "adjustment_commit", errors: commitValidation.errors });
       const integrityHash = await sha256Json(payload.planDraft);
       const completedChecksum = await sha256Json(payload.planDraft.completedPortion);
-      const { data, error } = await context.admin.rpc("future_you_revise_locked_live_plan_v2", {
+      const { data, error } = await context.admin.rpc("future_you_revise_locked_live_plan_v3", {
         p_user_id: context.user.id, p_goal_id: payload.goalId, p_progress_update_id: payload.progressUpdateId,
         p_assessment_id: payload.assessmentId, p_expected_revision: payload.expectedRevision, p_plan: payload.planDraft,
         p_integrity_hash: integrityHash, p_completed_checksum: completedChecksum, p_live_plan_change: payload.livePlanChange,
-        p_validation_result: payload.validationResult,
+        p_validation_result: payload.validationResult, p_change_path_id: payload.changePathId ?? null,
       });
       if (error) {
-        const conflicts = new Set(["future_you_live_plan_stale", "future_you_progression_assessment_stale", "future_you_progress_update_already_decided"]);
+        const conflicts = new Set(["future_you_live_plan_stale", "future_you_progression_assessment_stale", "future_you_progress_update_already_decided", "future_you_change_path_not_available", "future_you_change_path_source_not_validated"]);
         return json({ error: conflicts.has(error.message) ? error.message : "Unable to revise this Live Plan." }, conflicts.has(error.message) ? 409 : 400);
       }
       return json({ engine: "future-you-locked-v1", result: data, integrityHash, completedChecksum, todayStep: currentTodayStep(payload.planDraft), note: "The Original Plan and completed Live Plan history were not changed." });
