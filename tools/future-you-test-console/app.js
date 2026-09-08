@@ -115,7 +115,20 @@ function renderGuided() {
     guidedQuestion.textContent = draftQuestion?.question || questionCopy(target);
     guidedReason.textContent = draftQuestion?.whyThisMatters || target.reason || "This answer helps Future You make a realistic plan instead of guessing.";
     guidedOptions.innerHTML = "";
-    for (const option of draftQuestion?.options || []) { const button = document.createElement("button"); button.type = "button"; button.textContent = option.label; button.addEventListener("click", () => { guidedAnswer.value = option.id === "other" ? "" : option.label; guidedOptions.querySelectorAll("button").forEach((item) => item.classList.remove("selected")); button.classList.add("selected"); }); guidedOptions.append(button); }
+    const selected = new Set(guided.selectedOptionIds || []);
+    for (const option of draftQuestion?.options || []) {
+      const button = document.createElement("button"); button.type = "button"; button.textContent = option.label;
+      button.classList.toggle("selected", selected.has(option.id));
+      button.addEventListener("click", () => {
+        const multi = draftQuestion?.control === "multi_select";
+        if (multi) selected.has(option.id) ? selected.delete(option.id) : selected.add(option.id);
+        else { selected.clear(); selected.add(option.id); }
+        guided.selectedOptionIds = [...selected];
+        guidedAnswer.value = [...selected].map((id) => (draftQuestion.options || []).find((item) => item.id === id)?.label).filter(Boolean).join(", ");
+        renderGuided();
+      });
+      guidedOptions.append(button);
+    }
     guidedQuestionWrap.classList.remove("hidden"); guidedActions.classList.add("hidden");
   } else {
     guidedStage.textContent = "Intake complete • you can now inspect the AI's Source draft before any plan is made.";
@@ -179,8 +192,8 @@ guidedSubmit.addEventListener("click", async () => {
   const answer = guidedAnswer.value.trim(); if (!answer) return;
   guidedSubmit.disabled = true;
   try {
-    const data = await callFutureYou({ operation: "record_intake_answer", intakeInstanceId: guided.intakeId, informationKey: guided.nextTarget.key, rawValue: { answer } });
-    guided.nextTarget = data.result.next_target; guidedAnswer.value = ""; guided.questionDraft = guided.nextTarget ? (await callFutureYou({ operation: "derive_intake_question", intakeInstanceId: guided.intakeId })).questionDraft : null; saveGuided(); renderGuided();
+    const data = await callFutureYou({ operation: "record_intake_answer", intakeInstanceId: guided.intakeId, informationKey: guided.nextTarget.key, rawValue: { answer, selectedOptionIds: guided.selectedOptionIds || [] } });
+    guided.nextTarget = data.result.next_target; guidedAnswer.value = ""; guided.selectedOptionIds = []; guided.questionDraft = guided.nextTarget ? (await callFutureYou({ operation: "derive_intake_question", intakeInstanceId: guided.intakeId })).questionDraft : null; saveGuided(); renderGuided();
   } catch (error) { show(result, error instanceof Error ? error.message : "Unable to save this answer.", true); }
   finally { guidedSubmit.disabled = false; }
 });
