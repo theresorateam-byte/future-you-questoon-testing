@@ -1,144 +1,164 @@
-# Future You question sequencing review
+# Future You adaptive question framework
 
-Status: discussion draft only. This document changes no product behavior.
+Status: review draft only. It changes no product behavior.
 
-## Shared rules for every topic
+## The balance
 
-1. Ask one direct question at a time. Do not show I1, I2, I3, or internal labels to a user.
-2. Start with context and the intended result. Do not ask a detailed question before the person has named the concrete situation.
-3. Move safety, power, access, hard deadlines, and non-negotiable constraints forward when they could change the appropriate path.
-4. Ask a later question only when the previous answer makes it relevant. Skip facts already supplied.
-5. Use multi-select when more than one answer can be true. The person selects choices, then presses **Continue**; selecting a card never submits an answer by itself.
-6. Use short concrete choices plus **Other** when the answer space is bounded. Use a short text response only when choices would distort the answer.
-7. The system may offer a related-topic route, but it must not silently switch the person's goal.
+Future You needs a reliable order of **understanding**, not a fixed order of sentences. The system holds information priorities; the AI chooses the most useful next question from what is still unknown. It can skip, branch, or follow up based on what the person already said.
 
-## 1. Build stronger relationships
+The person experiences a natural conversation. The system follows a disciplined process.
 
-1. Who is this relationship with, and what is the relationship context?
-2. What would be different if this relationship were stronger?
-3. What is happening now that is getting in the way?
-4. Is there enough safety, willingness, and contact for a relationship-building path?
-5. What part needs attention first: understanding, responsiveness, connection, trust, repair, or adapting to change?
-6. What is within the person's control, and what depends on the other person?
-7. What opportunity exists for a small next step?
+## Rules for every conversation
 
-Branch: if communication is the primary obstacle, offer **Communicate Better**; if the issue is a limit or recurring overreach, offer **Set Better Boundaries**.
+1. Ask one direct question at a time in ordinary language.
+2. Learn the concrete situation, desired change, and current reality before planning—unless a safety, power, deadline, access, or feasibility issue needs attention sooner.
+3. Do not ask a fact already supplied. One detailed answer may remove several later questions.
+4. Use short answer cards when the likely answers are bounded; allow multiple selections when more than one can be true. The person selects answers, then presses **Continue**.
+5. Use an open response only when choices would oversimplify the situation.
+6. Never expose internal labels or silently change the person's goal. A related topic can be offered when it is more useful than continuing the current path.
 
-## 2. Communicate better
+## Topic information priorities
 
-1. Who is the conversation with, and what situation needs better communication?
-2. What result does the person need from the conversation?
-3. What usually happens in these conversations now?
-4. What needs work first: expressing, clarity, listening, regulation, or judgment?
-5. Is there a power, safety, or consequence issue that changes how direct the plan should be?
-6. What can the person control, and what response from the other person is realistic?
-7. Is there an upcoming conversation or a safe chance to practice?
+These are not scripts. “Early” means ask it soon only when it is unknown.
 
-Branch: if the desired result is enforcing a limit, offer **Set Better Boundaries**.
+### Build stronger relationships
 
-## 3. Set better boundaries
+**Early:** relationship context, desired change, current pattern.
 
-1. Who or what is this boundary about?
-2. What needs to change, stop, or be protected?
-3. What happens now when the boundary is crossed or avoided?
-4. Is there a safety, power, housing, work, financial, or retaliation concern?
-5. What boundary is actually within the person's control to state or act on?
-6. What practical requirement or dependency must the boundary respect?
-7. What makes follow-through hard: uncertainty, guilt, pressure, access, habit, or something else?
-8. What small opportunity is available to practice the boundary safely?
+**When relevant:** safety, willingness and contact; what is within the person's control; the first area that matters—understanding, responsiveness, connection, trust, repair, or adapting to change.
 
-## 4. Become more confident
+**Possible branch:** Communication for a talking problem; Boundaries for an unheld limit or repeated overreach.
 
-1. What specific situation does the person want more confidence in?
-2. What would confident action look like in that situation?
-3. What happens now when they face it?
-4. Does this require preparation, information, skill practice, or permission first?
-5. What are the stakes if it goes badly?
-6. Is there a safe, realistic opportunity to take one small action?
-7. Is the main issue confidence in action or trust in their own judgment?
-8. Is there any power or safety concern that means confidence is not the right first intervention?
+### Communicate better
 
-Branch: if judgment and decision authority are central, offer **Build Self-Trust**.
+**Early:** conversation context, concrete result needed, current communication pattern.
 
-## 5. Build self-trust
+**When relevant:** expression, clarity, listening, regulation, or judgment; power or consequence; realistic influence; an upcoming opportunity.
 
-1. What decision or situation does the person want to trust themselves in?
-2. Who has decision authority here?
-3. What information, expertise, or outside input is genuinely needed?
-4. How reversible are the consequences?
-5. What options are realistically available within current capacity?
-6. What creates pressure or second-guessing?
-7. Where does self-trust break down: knowing, choosing, following through, or recovering after a mistake?
-8. What role should outside input have?
+**Possible branch:** Boundaries when the real aim is holding a limit.
 
-## 6. Manage time better
+### Set better boundaries
 
-1. What part of the week or workload is not working?
-2. What time is actually available after fixed commitments?
-3. What commitments cannot move?
-4. What work or responsibilities are competing for that time?
-5. Where does time break down: planning, priorities, interruptions, estimating, capture, or follow-through?
-6. What is one real opportunity to change the schedule or protect time?
-7. Is the main problem time structure or delaying the first step?
-8. What constraint must the plan respect?
+**Early:** who or what it concerns, what needs to change, current pattern.
 
-Branch: if avoiding or delaying an intended task is central, offer **Stop Putting Things Off**.
+**Move forward immediately when relevant:** safety, retaliation, power, housing, work, financial dependence, or another constraint that changes what a sensible boundary looks like.
 
-## 7. Stop putting things off
+**When relevant:** control, practical requirements, follow-through friction, and the next safe opportunity.
 
-1. What specific action is being delayed?
-2. Does the person genuinely intend to do it, or is the goal imposed by someone else?
-3. Is there a realistic time and place to do it?
-4. What happens at the moment they could begin?
-5. Is delaying reasonable because of a missing requirement, or is it unnecessary delay?
-6. What is the main blocker: uncertainty, task size, fear, low energy, distraction, missing skill, conflict, or access?
-7. What is the cost of continued delay?
-8. What is the smallest useful first target?
+### Become more confident
 
-Branch: if the primary problem is an overfull schedule rather than delay, offer **Manage Time Better**.
+**Early:** specific situation, desired confident action, current response.
 
-## 8. Get my home organized
+**When relevant:** preparation or skill gap, stakes, safe opportunity, self-trust versus confidence, power or safety concern.
 
-1. What area of the home is not working?
-2. What does the person need that area to do for them?
-3. What friction happens there now?
-4. What needs attention first: function, placement, systems, maintenance, restoration, or adaptability?
-5. What is already in place, and what is missing?
-6. Who shares the space, and what can the person control?
-7. Are there housing, access, cost, health, or safety constraints?
-8. What amount of maintenance fits their real capacity?
-9. Is another routine the main reason the space falls apart?
+**Possible branch:** Self-Trust when judgment and decision authority are central.
 
-Branch: if daily upkeep is the core issue, offer **Build Routines That Work**.
+### Build self-trust
 
-## 9. Build routines that work
+**Early:** decision context, authority, and what makes self-trust difficult.
 
-1. What routine does the person want to build?
-2. What does it need to help with?
-3. When and how often can it realistically happen this week?
-4. What happens now when they try to do it?
-5. What time, energy, access, or scheduling limits must it fit?
-6. What cue or existing part of the day could start it?
-7. What happens after disruption, travel, illness, or a missed day?
-8. What needs attention first: fit, cue, repeatability, recovery, flexibility, or routine balance?
-9. Is another goal making this routine hard to sustain?
-10. Is there any safety or reality constraint that makes the proposed routine unsuitable?
+**When relevant:** information or expertise needed, reversibility, feasible options, pressure source, where trust breaks down, and the useful role of outside input.
 
-## 10. Feel more like myself
+### Manage time better
 
-1. What parts of themselves do they want more room to express or reconnect with?
-2. What does the disconnection feel like in daily life?
-3. Is it limited to a situation, or spread across much of life?
-4. When did the pattern become noticeable, and what keeps it going?
-5. Is the main need relief from a current constraint, or reconnection with identity and self-expression?
-6. Is another active goal—time, relationship, confidence, boundaries, or routine—the more direct starting point?
-7. What self-directed time, access, or capacity is realistically available?
-8. Is there a safety or stability concern that means this needs a gentler preparation path?
+**Early:** concrete time problem, fixed commitments, available capacity.
 
-## Review decisions to make together
+**When relevant:** workload scope, time breakdown, realistic opening, immovable constraints, and whether delay is more central than time structure.
 
-- Are these opening questions in the right order for each topic?
-- Which question groups should be multi-select?
-- Which topic branches should be offered, and at what moment?
-- Are any early safety or feasibility questions too early, too late, or worded too broadly?
-- What should a user see when the system needs more detail after a choice?
+**Possible branch:** Procrastination when repeatedly not starting is the main issue.
+
+### Stop putting things off
+
+**Early:** delayed action, genuine intention, real opportunity.
+
+**When relevant:** moment of starting, whether delay is reasonable, blocker family, impact, and smallest useful first target.
+
+**Possible branch:** Time Management when schedule overload—not delay—is central.
+
+### Get my home organized
+
+**Early:** area not working, desired function, current friction.
+
+**When relevant:** function, placement, systems, maintenance, restoration, or adaptability; current setup; shared control; housing and access limits; sustainable capacity.
+
+**Possible branch:** Routines when maintaining the space is the main problem.
+
+### Build routines that work
+
+**Early:** routine, intended benefit, realistic frequency or window, current pattern.
+
+**When relevant:** time, energy, and access limits; cue; recovery after disruption; routine dimension; conflicts with other goals; safety or reality limits.
+
+### Feel more like myself
+
+**Early:** what the person wants room to express or reconnect with, how disconnection appears, and whether it is situational or broad.
+
+**When relevant:** pattern and context; state relief versus identity reconnection; another more direct goal; self-directed capacity; safety or stability needs.
+
+## How the next question is chosen
+
+1. Read the goal and all prior answers.
+2. Remove needs that are already known or irrelevant.
+3. Bring forward any safety, feasibility, power, or deadline issue that changes the path.
+4. Choose the unknown item that most changes the next useful decision.
+5. Ask it directly with the right response format.
+6. Reassess after the answer; never blindly continue down a list.
+
+## Branch examples
+
+These examples show decision behavior, not required wording.
+
+| Topic | What is learned | Useful next direction |
+| --- | --- | --- |
+| Boundaries | The person says the boundary concerns a manager who controls their hours. | Move power and practical consequences forward before suggesting direct wording or follow-through. |
+| Boundaries | The person says it is a friend repeatedly asking for favors. | Learn the requested limit and current response before exploring consequences or practice. |
+| Time | The person has no uncommitted time because of fixed work and caregiving. | Learn which commitment or workload can change; do not ask for an ideal schedule. |
+| Procrastination | The action cannot start until a document arrives. | Treat delay as reasonable and learn the next controllable preparation step. |
+| Procrastination | Time is available but the person repeatedly avoids beginning. | Learn the start barrier and smallest meaningful first target. |
+| Confidence | The person wants confidence for a presentation but lacks required content. | Learn the preparation gap first; do not frame missing preparation as a confidence failure. |
+| Home | The room is shared and the person cannot decide where most items go. | Learn shared control and one controllable area before suggesting an organizing system. |
+| Routines | The routine works until one missed day, then disappears. | Focus on recovery after disruption rather than adding a stricter cue or schedule. |
+| Feel more like myself | The disconnection is tied to an unsafe or unstable situation. | Use a gentle preparation path; do not push self-expression actions that ignore safety. |
+
+## Response-format rules
+
+Use the response format that lets the person answer accurately with the least effort.
+
+| Use this format | When | Example |
+| --- | --- | --- |
+| Single select | One answer changes the next path. | “Which part needs attention first?” |
+| Multi-select | Several answers can all be true. | “What gets in the way of follow-through?” |
+| Short text | The person must name a unique situation, person, action, or outcome. | “What routine do you want to build?” |
+| Number or time | A concrete amount is needed for feasibility. | “How many minutes are realistically available on most days?” |
+| Date | A real deadline changes the plan. | “When is this due?” |
+
+For choices, use 3–6 concrete cards when possible. Include **Other** only when the options may not fit. Include **None** or **All** only when each makes real sense. A tap selects or deselects a card; **Continue** records the final selection.
+
+## Wording quality checks
+
+Every visible question should pass these checks before it is shown:
+
+- It asks for one concrete fact or decision.
+- It uses the person's actual subject when known.
+- It is easy to answer without doing analysis for the app.
+- It sounds direct, not therapeutic, promotional, or overly warm.
+- Its answer can change a useful next decision.
+
+### Reject questions like these
+
+| Avoid | Why | Better direction |
+| --- | --- | --- |
+| “What would an ideal routine look like for you?” | Hypothetical and vague. | Ask what routine they want and what time is realistically available. |
+| “How can we protect time for what matters most?” | Fluffy and indirect. | Ask what time is actually available after fixed commitments. |
+| “How might you honor your boundaries?” | Coaching language; does not identify the boundary. | Ask what needs to change or stop. |
+| “What support do you need?” | Too broad without context. | Ask about the specific missing resource, dependency, or decision. |
+| “Tell me more.” | Places the work on the person without a reason. | Ask the one missing detail that changes the next step. |
+| “Could you imagine trying…” | Suggests a plan before understanding the situation. | Learn the relevant constraint, current pattern, or opportunity first. |
+
+## Review together
+
+- Are the priorities right for each topic?
+- What should move earlier in specific situations?
+- Which answers should allow multiple selection?
+- Which related-topic branches should be offered?
+- Does this preserve intelligent variation without losing the necessary information?
