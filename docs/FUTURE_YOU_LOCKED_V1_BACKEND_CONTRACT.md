@@ -128,6 +128,9 @@ The complete callable operation allow-list is maintained in `supabase/functions/
 14. `progress_update_state` → reads the append-only update and adjustment ledgers for the signed-in owner.
 15. `derive_live_plan_revision` → sends the signed-in user's frozen source, current Live Plan, recorded Progress Update, and applied L3 assessment to the server-side model. It returns a locally validated, non-persisted future-only revision draft.
 16. `revise_live_plan` → requires the saved Progress Update and its current, evidence-citing L3 assessment. Its outcome must match the assessment, all five validation checks must pass, and the completed portion must remain structurally identical. When a validated Change Path is supplied, its committed status changes in the same transaction.
+17. `weekly_checkin_state` → reports whether the weekly review is due, based only on this goal’s most recent completed weekly review.
+18. `derive_weekly_checkin_question` → uses this goal’s prior seven days of saved Progress Updates and current weekly-review answers to produce one non-persisted question draft from a server-bounded review area.
+19. `record_weekly_checkin_answer` / `complete_weekly_checkin` → append direct user-report `check_in` evidence. They cannot change a plan or Level 3 state.
 17. `plan_state` → reads Original Plan, current Live Plan, and L3 state for the signed-in owner.
 
 The topic interpreter has controlled schemas for all ten locked topics. A submitted assessment cannot invent a named unit in these systems: Relationships, Communication, Boundaries, Confidence, Self-Trust, Time, Procrastination, Home Organization, Routines, or Feel More Like Myself. Confidence is context-by-dimension, and Feel More Like Myself retains its separate State and Identity routes.

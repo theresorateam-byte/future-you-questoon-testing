@@ -39,6 +39,37 @@ After an accepted plan, the Test Lab reads Today’s Step and server-generated u
 
 Original Plan and completed history must remain unchanged throughout.
 
+## 4. Weekly review
+
+Daily updates answer a narrow question about Today’s Step. Once each week, the
+user can begin a longer weekly review. It is an intentional appointment, not a
+background data collection job and not a second plan intake.
+
+The weekly review reads only this goal’s recorded daily Progress Updates from
+the previous seven days and the answers already given in this weekly review.
+It asks between three and five adaptive questions across these bounded review
+areas:
+
+- What the week actually looked like.
+- A concrete follow-up on a recorded pattern, especially a repeated difficulty.
+- What made the hard moment harder or easier.
+- Whether the current plan fit the person’s real circumstances.
+- What should be different, if anything, in the coming week.
+
+The server supplies the allowed review areas. The model can choose the most
+useful unresolved area and write direct wording/options, but cannot invent a
+new area, repeat an answered area, save an answer, or decide that a plan has
+changed. When the daily records show a real pattern, the question should name
+the recorded pattern plainly—for example, “Last week, you marked speaking up
+as difficult twice. What happened when you tried it this week?” It must not
+claim a cause that the record does not support.
+
+Each answer is saved as canonical `check_in` evidence only after Continue.
+Completing the review requires at least three answers and creates an explicit
+completion record. The evidence may be considered by the existing Level 3
+assessment and future-only Live Plan revision flow; it never edits the
+immutable Original Plan or completed history.
+
 ## Acceptance checks
 
 - Multi-select choices remain selected until Continue and are saved as an array.
@@ -47,4 +78,6 @@ Original Plan and completed history must remain unchanged throughout.
 - An incomplete intake cannot create a Source or action plan.
 - Drafts never save themselves.
 - One successful test journey reaches a saved plan, an update, an assessment, and a future-only revision.
+- A weekly review reflects recorded daily updates, keeps its questions distinct,
+  and cannot finish with fewer than three saved answers.
 - Negative tests prove stale revisions, invented evidence, and changed completed history are rejected.

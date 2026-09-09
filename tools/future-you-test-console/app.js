@@ -17,7 +17,6 @@ const preset = document.querySelector("#preset");
 const payload = document.querySelector("#payload");
 const run = document.querySelector("#run");
 const result = document.querySelector("#result");
-const guidedGoal = document.querySelector("#guided-goal");
 const guidedBegin = document.querySelector("#guided-begin");
 const guidedFlow = document.querySelector("#guided-flow");
 const guidedStage = document.querySelector("#guided-stage");
@@ -39,36 +38,46 @@ const guidedUpdateChoices = document.querySelector("#guided-update-choices");
 const guidedUpdateReason = document.querySelector("#guided-update-reason");
 const guidedUpdateNote = document.querySelector("#guided-update-note");
 const guidedSaveUpdate = document.querySelector("#guided-save-update");
+const guidedWeekly = document.querySelector("#guided-weekly");
+const guidedWeeklyStatus = document.querySelector("#guided-weekly-status");
+const guidedWeeklyStart = document.querySelector("#guided-weekly-start");
+const guidedWeeklyQuestionWrap = document.querySelector("#guided-weekly-question-wrap");
+const guidedWeeklyQuestion = document.querySelector("#guided-weekly-question");
+const guidedWeeklyReason = document.querySelector("#guided-weekly-reason");
+const guidedWeeklyOptions = document.querySelector("#guided-weekly-options");
+const guidedWeeklyAnswer = document.querySelector("#guided-weekly-answer");
+const guidedWeeklySubmit = document.querySelector("#guided-weekly-submit");
+const guidedWeeklyComplete = document.querySelector("#guided-weekly-complete");
 const topicPicker = document.querySelector("#topic-picker");
 let guided = JSON.parse(localStorage.getItem("future-you-guided-test") || "null");
 
 const topics = [
-  ["build_stronger_relationships", "Build stronger relationships", "I want to strengthen an important relationship."],
-  ["communicate_better", "Communicate better", "I want to communicate more clearly in an important situation."],
-  ["set_better_boundaries", "Set better boundaries", "I want to set a boundary I can follow through on."],
-  ["become_more_confident", "Become more confident", "I want to act with more confidence in a specific situation."],
-  ["build_self_trust", "Build self-trust", "I want to trust myself more when making decisions."],
-  ["manage_my_time_better", "Manage my time better", "I want to manage my time in a way that feels realistic."],
-  ["stop_putting_things_off", "Stop putting things off", "I want to stop delaying something important."],
-  ["get_my_home_organized", "Get my home organized", "I want to make one part of my home work better."],
-  ["build_routines_that_work", "Build routines that work", "I want to build a simple routine I can keep this week."],
-  ["feel_more_like_myself", "Feel more like myself", "I want to feel more like myself in daily life."],
+  ["build_stronger_relationships", "Build stronger relationships"],
+  ["communicate_better", "Communicate better"],
+  ["set_better_boundaries", "Set better boundaries"],
+  ["become_more_confident", "Become more confident"],
+  ["build_self_trust", "Build self-trust"],
+  ["manage_my_time_better", "Manage my time better"],
+  ["stop_putting_things_off", "Stop putting things off"],
+  ["get_my_home_organized", "Get my home organized"],
+  ["build_routines_that_work", "Build routines that work"],
+  ["feel_more_like_myself", "Feel more like myself"],
 ];
 let selectedTopic = "build_routines_that_work";
 
 function renderTopics() {
   topicPicker.innerHTML = "";
-  for (const [key, label, suggestion] of topics) {
+  for (const [key, label] of topics) {
     const button = document.createElement("button"); button.type = "button"; button.textContent = label;
     button.classList.toggle("selected", key === selectedTopic);
-    button.addEventListener("click", () => { selectedTopic = key; guidedGoal.value = suggestion; renderTopics(); });
+    button.addEventListener("click", () => { selectedTopic = key; renderTopics(); });
     topicPicker.append(button);
   }
 }
 
 const presets = {
   contract_status: { operation: "contract_status" },
-  start_intake: { operation: "start_intake", topicKey: "build_routines_that_work", goalText: "Build a simple routine I can keep this week." },
+  start_intake: { operation: "start_intake", topicKey: "build_routines_that_work" },
   today_step: { operation: "today_step", goalId: "replace-with-goal-id" },
   progress_update_options: { operation: "progress_update_options", goalId: "replace-with-goal-id" },
   custom: { operation: "contract_status" },
@@ -149,6 +158,38 @@ function renderGuided() {
     guidedUpdateChoices.innerHTML = "";
     for (const choice of guided.updateChoices || []) { const button = document.createElement("button"); button.type = "button"; button.textContent = choice.label; button.classList.toggle("selected", guided.selectedUpdateChoiceId === choice.id); button.addEventListener("click", () => { guided.selectedUpdateChoiceId = choice.id; renderGuided(); }); guidedUpdateChoices.append(button); }
   }
+  if (guided?.goalId && guided?.planApproved) {
+    guidedWeekly.classList.remove("hidden");
+    const checkIn = guided.weeklyState?.weeklyCheckIn;
+    guidedWeeklyStatus.textContent = checkIn?.note || "A weekly review looks at the past seven days of recorded updates and asks deeper follow-up questions.";
+    const weeklyDraft = guided.weeklyQuestionDraft;
+    if (weeklyDraft) {
+      guidedWeeklyQuestionWrap.classList.remove("hidden");
+      guidedWeeklyQuestion.textContent = weeklyDraft.question;
+      guidedWeeklyReason.textContent = weeklyDraft.whyThisMatters;
+      guidedWeeklyOptions.innerHTML = "";
+      const selected = new Set(guided.weeklySelectedOptionIds || []);
+      for (const option of weeklyDraft.options || []) {
+        const button = document.createElement("button"); button.type = "button"; button.textContent = option.label;
+        button.classList.toggle("selected", selected.has(option.id));
+        button.addEventListener("click", () => {
+          const multi = weeklyDraft.control === "multi_select";
+          if (multi) selected.has(option.id) ? selected.delete(option.id) : selected.add(option.id);
+          else { selected.clear(); selected.add(option.id); }
+          guided.weeklySelectedOptionIds = [...selected];
+          guidedWeeklyAnswer.value = [...selected].map((id) => (weeklyDraft.options || []).find((item) => item.id === id)?.label).filter(Boolean).join(", ");
+          saveGuided(); renderGuided();
+        });
+        guidedWeeklyOptions.append(button);
+      }
+      guidedWeeklyComplete.classList.add("hidden");
+    } else {
+      guidedWeeklyQuestionWrap.classList.add("hidden");
+      const enoughAnswers = (guided.weeklyAnswerCount || 0) >= 3 && guided.weeklyCheckInId && !guided.weeklyCompleted;
+      guidedWeeklyComplete.classList.toggle("hidden", !enoughAnswers);
+    }
+    guidedWeeklyStart.classList.toggle("hidden", Boolean(guided.weeklyCheckInId));
+  }
 }
 
 async function loadUpdateFlow() {
@@ -198,7 +239,7 @@ run.addEventListener("click", async () => {
 guidedBegin.addEventListener("click", async () => {
   guidedBegin.disabled = true;
   try {
-    const data = await callFutureYou({ operation: "start_intake", topicKey: selectedTopic, goalText: guidedGoal.value.trim() });
+    const data = await callFutureYou({ operation: "start_intake", topicKey: selectedTopic });
     guided = { intakeId: data.intake.intake_instance_id, goalId: data.intake.goal_id, topicKey: selectedTopic, nextTarget: data.intake.next_information_target };
     guided.questionDraft = (await callFutureYou({ operation: "derive_intake_question", intakeInstanceId: guided.intakeId })).questionDraft;
     saveGuided(); renderGuided(); show(result, "Guided intake started successfully.");
@@ -231,7 +272,7 @@ guidedPlan.addEventListener("click", async () => {
 });
 guidedApprove.addEventListener("click", async () => {
   guidedApprove.disabled = true;
-  try { const data = await callFutureYou({ operation: "approve_initial_plan", intakeInstanceId: guided.intakeId, planDraft: guided.planDraft }); guided.planApproved = true; saveGuided(); draft({ stage: "Action plan saved — this is the plan a user would see", result: data, plan: guided.planDraft }); await loadUpdateFlow(); }
+  try { const data = await callFutureYou({ operation: "approve_initial_plan", intakeInstanceId: guided.intakeId, planDraft: guided.planDraft }); guided.planApproved = true; guided.weeklyState = await callFutureYou({ operation: "weekly_checkin_state", goalId: guided.goalId }); saveGuided(); draft({ stage: "Action plan saved — this is the plan a user would see", result: data, plan: guided.planDraft }); await loadUpdateFlow(); }
   catch (error) { show(result, error instanceof Error ? error.message : "Unable to approve action plan.", true); } finally { guidedApprove.disabled = false; }
 });
 guidedSaveUpdate.addEventListener("click", async () => {
@@ -241,7 +282,50 @@ guidedSaveUpdate.addEventListener("click", async () => {
     const choice = (guided.updateChoices || []).find((item) => item.id === guided.selectedUpdateChoiceId);
     const data = await callFutureYou({ operation: "record_progress_update", goalId: guided.goalId, clientUpdateId: crypto.randomUUID(), expectedLiveRevision: guided.liveRevision, selectedChoiceId: guided.selectedUpdateChoiceId, reasonCategory: choice?.normalizedState === "completed" ? null : guidedUpdateReason.value, reasonCode: guidedUpdateNote.value.trim() || choice?.normalizedState || "completed", variables: [], optionalNote: guidedUpdateNote.value.trim() || null });
     draft({ stage: "Update saved", update: data, next: "The next step is to review the evidence and generate the Level 3 assessment draft." });
+    if (guided.planApproved) {
+      guided.weeklyState = await callFutureYou({ operation: "weekly_checkin_state", goalId: guided.goalId });
+      saveGuided(); renderGuided();
+    }
   } catch (error) { show(result, error instanceof Error ? error.message : "Unable to save this update.", true); } finally { guidedSaveUpdate.disabled = false; }
+});
+
+async function loadWeeklyQuestion() {
+  const data = await callFutureYou({ operation: "derive_weekly_checkin_question", goalId: guided.goalId, checkInId: guided.weeklyCheckInId });
+  guided.weeklyAnswerCount = data.answerCount || 0;
+  guided.weeklyQuestionDraft = data.questionDraft || null;
+  if (data.complete) guided.weeklyQuestionDraft = null;
+  saveGuided(); renderGuided();
+}
+
+guidedWeeklyStart.addEventListener("click", async () => {
+  guidedWeeklyStart.disabled = true;
+  try {
+    guided.weeklyCheckInId = crypto.randomUUID(); guided.weeklyAnswerCount = 0; guided.weeklyCompleted = false;
+    await loadWeeklyQuestion();
+    draft({ stage: "Weekly review started", note: "The next question is based on this goal's recorded daily updates. Nothing is finished until you press Finish weekly review." });
+  } catch (error) { show(result, error instanceof Error ? error.message : "Unable to start the weekly review.", true); }
+  finally { guidedWeeklyStart.disabled = false; }
+});
+
+guidedWeeklySubmit.addEventListener("click", async () => {
+  const answer = guidedWeeklyAnswer.value.trim(); if (!answer || !guided.weeklyQuestionDraft) return;
+  guidedWeeklySubmit.disabled = true;
+  try {
+    const data = await callFutureYou({ operation: "record_weekly_checkin_answer", goalId: guided.goalId, checkInId: guided.weeklyCheckInId, informationKey: guided.weeklyQuestionDraft.informationKey, answer, selectedOptionIds: guided.weeklySelectedOptionIds || [] });
+    guided.weeklyAnswerCount = data.answerCount; guided.weeklyQuestionDraft = null; guided.weeklySelectedOptionIds = []; guidedWeeklyAnswer.value = "";
+    await loadWeeklyQuestion();
+  } catch (error) { show(result, error instanceof Error ? error.message : "Unable to save this weekly answer.", true); }
+  finally { guidedWeeklySubmit.disabled = false; }
+});
+
+guidedWeeklyComplete.addEventListener("click", async () => {
+  guidedWeeklyComplete.disabled = true;
+  try {
+    const data = await callFutureYou({ operation: "complete_weekly_checkin", goalId: guided.goalId, checkInId: guided.weeklyCheckInId });
+    guided.weeklyCompleted = true; guided.weeklyQuestionDraft = null; guided.weeklyState = await callFutureYou({ operation: "weekly_checkin_state", goalId: guided.goalId }); saveGuided(); renderGuided();
+    draft({ stage: "Weekly review complete", result: data, next: "These answers are canonical evidence. The assessment and future-only plan revision can use them; the Original Plan remains unchanged." });
+  } catch (error) { show(result, error instanceof Error ? error.message : "Unable to finish this weekly review.", true); }
+  finally { guidedWeeklyComplete.disabled = false; }
 });
 
 document.querySelector("#copy").addEventListener("click", async () => {

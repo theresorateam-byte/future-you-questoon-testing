@@ -41,8 +41,7 @@
       <div id="guided-start">
         <label>Choose what you want to work on</label>
         <div id="topic-picker" class="topic-picker"></div>
-        <label for="guided-goal">What would you like to work on?</label>
-        <input id="guided-goal" value="Build a simple routine I can keep this week." />
+        <p class="subtle">In the product, choosing a topic starts the conversation. The questions establish the specific goal; there is no typed goal field.</p>
         <button id="guided-begin" type="button">Begin test intake</button>
       </div>
       <div id="guided-flow" class="hidden">
@@ -70,6 +69,20 @@
           <label for="guided-update-note">Short note</label>
           <input id="guided-update-note" placeholder="What happened?" />
           <button id="guided-save-update" type="button">Save update</button>
+        </div>
+        <div id="guided-weekly" class="hidden">
+          <h3>Weekly review</h3>
+          <p id="guided-weekly-status" class="status"></p>
+          <button id="guided-weekly-start" type="button">Start weekly review for test</button>
+          <div id="guided-weekly-question-wrap" class="hidden">
+            <h3 id="guided-weekly-question"></h3>
+            <p id="guided-weekly-reason" class="subtle"></p>
+            <div id="guided-weekly-options" class="topic-picker"></div>
+            <label for="guided-weekly-answer">Your answer</label>
+            <textarea id="guided-weekly-answer" class="guided-answer" placeholder="Answer in your own words."></textarea>
+            <button id="guided-weekly-submit" type="button">Continue weekly review</button>
+          </div>
+          <button id="guided-weekly-complete" class="secondary hidden" type="button">Finish weekly review</button>
         </div>
         <pre id="guided-draft" class="status draft hidden"></pre>
       </div>

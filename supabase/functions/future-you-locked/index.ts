@@ -15,6 +15,7 @@ import { unknownOperationMessage } from "./operation-contract.ts";
 import { parseLockedRequestPayload } from "./request-contract.ts";
 import { deriveIntakeQuestion } from "./intake-question-deriver.ts";
 import { deriveNextIntakeTarget } from "./intake-turn-deriver.ts";
+import { deriveWeeklyCheckinQuestion, WEEKLY_CHECKIN_KEYS } from "./weekly-checkin-deriver.ts";
 
 /**
  * Locked Future You service, kept separate from the legacy future-you-engine.
@@ -105,6 +106,51 @@ async function authorizedTester(req: Request) {
   return { ok: true as const, admin, user: auth.user, role: access.role };
 }
 
+const WEEKLY_MINIMUM_ANSWERS = 3;
+const WEEKLY_MAXIMUM_ANSWERS = 5;
+type WeeklyEvidenceRow = { id: string; evidence_content: unknown; context: unknown; recorded_at: string };
+
+// A topic card establishes the starting intent. The actual subject and desired
+// result are collected by the conversation, not typed into a goal field.
+const TOPIC_START_INTENTS: Record<string, string> = {
+  build_stronger_relationships: "Build stronger relationships",
+  communicate_better: "Communicate better",
+  set_better_boundaries: "Set better boundaries",
+  become_more_confident: "Become more confident",
+  build_self_trust: "Build self-trust",
+  manage_my_time_better: "Manage my time better",
+  stop_putting_things_off: "Stop putting things off",
+  get_my_home_organized: "Get my home organized",
+  build_routines_that_work: "Build routines that work",
+  feel_more_like_myself: "Feel more like myself",
+};
+
+function weeklyCheckinContent(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+async function weeklyCheckinContext(admin: any, userId: string, goalId: string, checkInId?: string) {
+  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const [goalResult, updatesResult, checkInsResult] = await Promise.all([
+    admin.from("goals").select("goal_text").eq("id", goalId).eq("user_id", userId).maybeSingle(),
+    admin.from("future_you_progress_updates").select("id, normalized_state, reason_category, reason_code, optional_note, occurred_at").eq("goal_id", goalId).eq("user_id", userId).gte("occurred_at", weekAgo).order("occurred_at", { ascending: false }).limit(30),
+    admin.from("canonical_evidence").select("id, evidence_content, context, recorded_at").eq("goal_id", goalId).eq("user_id", userId).eq("source_kind", "check_in").order("recorded_at", { ascending: false }).limit(100),
+  ]);
+  const error = [goalResult.error, updatesResult.error, checkInsResult.error].find(Boolean);
+  if (error) throw error;
+  if (!goalResult.data) return null;
+  const allCheckIns: WeeklyEvidenceRow[] = checkInsResult.data ?? [];
+  const answers = allCheckIns.filter((item) => {
+    const content = weeklyCheckinContent(item.evidence_content);
+    return content?.flow === "weekly_checkin" && content?.phase === "answer" && (!checkInId || content?.checkInId === checkInId);
+  });
+  const latestCompleted = allCheckIns.find((item) => {
+    const content = weeklyCheckinContent(item.evidence_content);
+    return content?.flow === "weekly_checkin" && content?.phase === "complete";
+  });
+  return { weekAgo, goalText: goalResult.data.goal_text, dailyUpdates: updatesResult.data ?? [], allCheckIns, answers, latestCompleted };
+}
+
 Deno.serve(async (req): Promise<Response> => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "Method not allowed." }, 405);
@@ -119,10 +165,10 @@ Deno.serve(async (req): Promise<Response> => {
     }
     const payload = parsed.payload;
     if (payload.operation === "start_intake") {
-      const goalText = typeof payload.goalText === "string" ? payload.goalText : "";
       const topicKey = typeof payload.topicKey === "string" ? payload.topicKey : null;
       const requirementSeeds = requirementsForTopic(topicKey ?? "");
-      if (requirementSeeds.length === 0) {
+      const goalText = topicKey ? TOPIC_START_INTENTS[topicKey] : null;
+      if (requirementSeeds.length === 0 || !goalText) {
         return json({ error: "Choose one approved Future You topic before starting intake." }, 400);
       }
       const { data, error } = await context.admin.rpc("future_you_start_locked_intake", {
@@ -486,6 +532,90 @@ Deno.serve(async (req): Promise<Response> => {
       const queryError = [updatesResult.error, decisionsResult.error].find(Boolean);
       if (queryError) throw queryError;
       return json({ engine: "future-you-locked-v1", updates: updatesResult.data ?? [], decisions: decisionsResult.data ?? [] });
+    }
+
+    if (payload.operation === "weekly_checkin_state") {
+      if (!isUuid(payload.goalId)) return json({ error: "A valid goalId is required." }, 400);
+      const data = await weeklyCheckinContext(context.admin, context.user.id, payload.goalId);
+      if (!data) return json({ error: "No Future You goal was found." }, 404);
+      const lastCompletedAt = data.latestCompleted?.recorded_at ?? null;
+      const due = !lastCompletedAt || new Date(lastCompletedAt).getTime() < Date.now() - 7 * 24 * 60 * 60 * 1000;
+      return json({
+        engine: "future-you-locked-v1",
+        weeklyCheckIn: {
+          due,
+          lastCompletedAt,
+          dailyUpdateCount: data.dailyUpdates.length,
+          note: due ? "Your weekly review is ready. It looks at the past seven days of recorded updates." : "Your next weekly review becomes available seven days after the last one.",
+        },
+      });
+    }
+
+    if (payload.operation === "derive_weekly_checkin_question") {
+      if (!isUuid(payload.goalId) || !isUuid(payload.checkInId)) return json({ error: "A valid goalId and checkInId are required." }, 400);
+      const data = await weeklyCheckinContext(context.admin, context.user.id, payload.goalId, payload.checkInId);
+      if (!data) return json({ error: "No Future You goal was found." }, 404);
+      const completedKeys = new Set(data.answers.map((item) => String(weeklyCheckinContent(item.evidence_content)?.informationKey ?? "")));
+      const candidates = WEEKLY_CHECKIN_KEYS.filter((key) => !completedKeys.has(key));
+      if (data.answers.length >= WEEKLY_MAXIMUM_ANSWERS || candidates.length === 0) {
+        return json({ engine: "future-you-locked-v1", complete: true, answerCount: data.answers.length, note: "The weekly review has enough information to finish." });
+      }
+      const result = await deriveWeeklyCheckinQuestion({
+        goalText: data.goalText,
+        dailyUpdates: data.dailyUpdates,
+        previousAnswers: data.answers.map((item) => weeklyCheckinContent(item.evidence_content) ?? {}),
+        candidates,
+        safetyIdentifier: await sha256Json(context.user.id),
+      });
+      return json({ engine: "future-you-locked-v1", checkInId: payload.checkInId, answerCount: data.answers.length, minimumAnswers: WEEKLY_MINIMUM_ANSWERS, questionDraft: result?.question ?? null, usage: result?.usage, note: "This is a non-persisted weekly question draft. An answer is saved only after Continue." });
+    }
+
+    if (payload.operation === "record_weekly_checkin_answer") {
+      if (!isUuid(payload.goalId) || !isUuid(payload.checkInId) || !WEEKLY_CHECKIN_KEYS.includes(payload.informationKey)) {
+        return json({ error: "A valid goalId, checkInId, and weekly information key are required." }, 400);
+      }
+      if (typeof payload.answer !== "string" || payload.answer.trim().length === 0 || payload.answer.length > 2000) {
+        return json({ error: "Provide a weekly answer of up to 2,000 characters." }, 400);
+      }
+      const data = await weeklyCheckinContext(context.admin, context.user.id, payload.goalId, payload.checkInId);
+      if (!data) return json({ error: "No Future You goal was found." }, 404);
+      if (data.answers.length >= WEEKLY_MAXIMUM_ANSWERS) return json({ error: "This weekly review already has enough answers to finish." }, 409);
+      const existing = data.answers.some((item) => weeklyCheckinContent(item.evidence_content)?.informationKey === payload.informationKey);
+      if (existing) return json({ error: "That weekly review area was already answered." }, 409);
+      const { data: evidenceId, error } = await context.admin.rpc("future_you_record_locked_evidence_v2", {
+        p_user_id: context.user.id,
+        p_goal_id: payload.goalId,
+        p_source_kind: "check_in",
+        p_content: { flow: "weekly_checkin", phase: "answer", checkInId: payload.checkInId, informationKey: payload.informationKey, answer: payload.answer.trim(), selectedOptionIds: Array.isArray(payload.selectedOptionIds) ? payload.selectedOptionIds.slice(0, 8) : [] },
+        p_quality: { kind: "direct_user_report" },
+        p_context: { cadence: "weekly", weekStartedAt: data.weekAgo },
+        p_occurred_at: new Date().toISOString(),
+      });
+      if (error) return json({ error: "Unable to save this weekly answer." }, 400);
+      return json({ engine: "future-you-locked-v1", evidenceId, answerCount: data.answers.length + 1, note: "This answer is now canonical evidence for the weekly review and later assessment." });
+    }
+
+    if (payload.operation === "complete_weekly_checkin") {
+      if (!isUuid(payload.goalId) || !isUuid(payload.checkInId)) return json({ error: "A valid goalId and checkInId are required." }, 400);
+      const data = await weeklyCheckinContext(context.admin, context.user.id, payload.goalId, payload.checkInId);
+      if (!data) return json({ error: "No Future You goal was found." }, 404);
+      if (data.answers.length < WEEKLY_MINIMUM_ANSWERS) return json({ error: `Answer at least ${WEEKLY_MINIMUM_ANSWERS} weekly questions before finishing.` }, 409);
+      const alreadyComplete = data.allCheckIns.some((item) => {
+        const content = weeklyCheckinContent(item.evidence_content);
+        return content?.flow === "weekly_checkin" && content?.phase === "complete" && content?.checkInId === payload.checkInId;
+      });
+      if (alreadyComplete) return json({ engine: "future-you-locked-v1", idempotentReplay: true, answerCount: data.answers.length, note: "This weekly review was already completed." });
+      const { data: evidenceId, error } = await context.admin.rpc("future_you_record_locked_evidence_v2", {
+        p_user_id: context.user.id,
+        p_goal_id: payload.goalId,
+        p_source_kind: "check_in",
+        p_content: { flow: "weekly_checkin", phase: "complete", checkInId: payload.checkInId, answerCount: data.answers.length },
+        p_quality: { kind: "direct_user_report" },
+        p_context: { cadence: "weekly", weekStartedAt: data.weekAgo },
+        p_occurred_at: new Date().toISOString(),
+      });
+      if (error) return json({ error: "Unable to finish this weekly review." }, 400);
+      return json({ engine: "future-you-locked-v1", evidenceId, answerCount: data.answers.length, note: "Weekly review complete. Its answers are now available to the Level 3 assessment and future-only plan revision flow." });
     }
 
     if (payload.operation === "record_evidence") {
