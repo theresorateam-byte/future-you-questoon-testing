@@ -11,7 +11,7 @@ This runbook applies only to the Supabase `future-you-locked` Edge Function. It 
 
 ## Initial-plan acceptance path
 
-1. Call `start_intake` with an approved topic and goal text.
+1. Call `start_intake` with an approved topic. The selected topic starts the conversation; the user does not type a goal statement before questions begin.
 2. Repeatedly read `intake_state` and submit only the current target through `record_intake_answer`.
 3. Confirm `intake_readiness.readyForSource` is true.
 4. Use `source_handoff_preview` or `derive_source_handoff`; treat any model result as a draft.
@@ -35,6 +35,14 @@ This runbook applies only to the Supabase `future-you-locked` Edge Function. It 
 3. A Source draft may cite parent facts as reference context and re-entry facts as current context; histories remain separate.
 4. Freeze the Change Path source, derive a future-only revision with `changePathId`, then commit it with the same identifier.
 5. Confirm the Change Path becomes committed and the Original Plan remains unchanged.
+
+## Weekly review path
+
+1. Read `weekly_checkin_state` after a plan exists. The UI may offer the review once seven days have passed; the Test Lab can start it early for testing.
+2. Start a locally generated `checkInId`, then repeatedly call `derive_weekly_checkin_question` and save a selected/typed answer only through `record_weekly_checkin_answer`.
+3. Confirm the question references only this goal’s recorded daily update pattern and does not repeat an answered review area.
+4. Finish with `complete_weekly_checkin` only after at least three answers. Verify that it creates `check_in` evidence, not a plan or Level 3 write.
+5. Use the normal assessment/revision path if a review of the new weekly evidence is desired; verify the Original Plan and completed portion remain unchanged.
 
 ## Required negative checks
 
