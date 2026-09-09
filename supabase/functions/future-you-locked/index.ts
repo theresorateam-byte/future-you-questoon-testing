@@ -14,6 +14,7 @@ import { buildVisibleUpdateChoices, currentTodayStep, validateAdjustmentCommit, 
 import { unknownOperationMessage } from "./operation-contract.ts";
 import { parseLockedRequestPayload } from "./request-contract.ts";
 import { deriveIntakeQuestion } from "./intake-question-deriver.ts";
+import { deriveNextIntakeTarget } from "./intake-turn-deriver.ts";
 
 /**
  * Locked Future You service, kept separate from the legacy future-you-engine.
@@ -708,7 +709,26 @@ Deno.serve(async (req): Promise<Response> => {
         const clientErrors = new Set(["future_you_intake_not_available", "future_you_answer_not_for_current_target", "future_you_answer_object_required"]);
         return json({ error: clientErrors.has(error.message) ? error.message : "Unable to record this intake answer." }, 400);
       }
-      return json({ engine: "future-you-locked-v1", result: data });
+      const result = data as { status?: string; next_target?: Record<string, unknown> };
+      if (result?.status === "collecting") {
+        const [intakeResult, goalResult, factsResult, requirementsResult] = await Promise.all([
+          context.admin.from("intake_instances").select("id, goal_id").eq("id", payload.intakeInstanceId).eq("user_id", context.user.id).maybeSingle(),
+          context.admin.from("intake_instances").select("goals!inner(goal_text)").eq("id", payload.intakeInstanceId).eq("user_id", context.user.id).maybeSingle(),
+          context.admin.from("intake_facts").select("fact_key, fact_value").eq("intake_instance_id", payload.intakeInstanceId).eq("user_id", context.user.id),
+          context.admin.from("intake_requirements").select("requirement_key, priority, decision_area, target").eq("intake_instance_id", payload.intakeInstanceId).eq("applicability", "active").eq("resolution", "missing").in("priority", ["essential_now", "conditional"]),
+        ]);
+        const queryError = [intakeResult.error, goalResult.error, factsResult.error, requirementsResult.error].find(Boolean);
+        if (queryError || !intakeResult.data || !goalResult.data) throw queryError ?? new Error("Intake not found.");
+        const goal = goalResult.data as unknown as { goals?: { goal_text?: string } };
+        const selected = await deriveNextIntakeTarget({ goalText: String(goal.goals?.goal_text ?? ""), facts: factsResult.data ?? [], candidates: requirementsResult.data ?? [], safetyIdentifier: await sha256Json(context.user.id) });
+        if (selected) {
+          const nextTarget = { ...(selected.target as Record<string, unknown>), key: selected.requirement_key, reason: "Selected from the remaining decision-relevant information." };
+          const { error: updateError } = await context.admin.from("intake_instances").update({ next_information_target: nextTarget }).eq("id", intakeResult.data.id).eq("user_id", context.user.id);
+          if (updateError) throw updateError;
+          result.next_target = nextTarget;
+        }
+      }
+      return json({ engine: "future-you-locked-v1", result });
     }
 
     if (payload.operation !== "contract_status") return json({ error: unknownOperationMessage() }, 400);

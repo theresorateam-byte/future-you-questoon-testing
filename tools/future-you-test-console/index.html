@@ -61,6 +61,16 @@
           <button id="guided-plan" class="secondary hidden" type="button">Show AI action-plan draft</button>
           <button id="guided-approve" class="secondary hidden" type="button">Approve action plan for test</button>
         </div>
+        <div id="guided-update" class="hidden">
+          <h3>Test an update</h3>
+          <p id="guided-today-step" class="status"></p>
+          <div id="guided-update-choices" class="topic-picker"></div>
+          <label for="guided-update-reason">If you did not complete it, what got in the way?</label>
+          <select id="guided-update-reason"><option value="">Not needed for completed</option><option value="time">Time</option><option value="capacity">Capacity</option><option value="access">Access</option><option value="emotion">Emotion</option><option value="external_difficulty">External difficulty</option></select>
+          <label for="guided-update-note">Short note</label>
+          <input id="guided-update-note" placeholder="What happened?" />
+          <button id="guided-save-update" type="button">Save update</button>
+        </div>
         <pre id="guided-draft" class="status draft hidden"></pre>
       </div>
     </section>

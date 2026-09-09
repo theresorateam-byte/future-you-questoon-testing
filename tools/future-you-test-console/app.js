@@ -33,6 +33,12 @@ const guidedFreeze = document.querySelector("#guided-freeze");
 const guidedPlan = document.querySelector("#guided-plan");
 const guidedApprove = document.querySelector("#guided-approve");
 const guidedDraft = document.querySelector("#guided-draft");
+const guidedUpdate = document.querySelector("#guided-update");
+const guidedTodayStep = document.querySelector("#guided-today-step");
+const guidedUpdateChoices = document.querySelector("#guided-update-choices");
+const guidedUpdateReason = document.querySelector("#guided-update-reason");
+const guidedUpdateNote = document.querySelector("#guided-update-note");
+const guidedSaveUpdate = document.querySelector("#guided-save-update");
 const topicPicker = document.querySelector("#topic-picker");
 let guided = JSON.parse(localStorage.getItem("future-you-guided-test") || "null");
 
@@ -137,6 +143,17 @@ function renderGuided() {
     guidedPlan.classList.toggle("hidden", !guided.sourceFrozen);
     guidedApprove.classList.toggle("hidden", !guided.planDraft);
   }
+  if (guided?.liveRevision && guided?.todayStep) {
+    guidedUpdate.classList.remove("hidden");
+    guidedTodayStep.textContent = `Today’s Step: ${guided.todayStep.action}\nSmallest version: ${guided.todayStep.minimumVersion}`;
+    guidedUpdateChoices.innerHTML = "";
+    for (const choice of guided.updateChoices || []) { const button = document.createElement("button"); button.type = "button"; button.textContent = choice.label; button.classList.toggle("selected", guided.selectedUpdateChoiceId === choice.id); button.addEventListener("click", () => { guided.selectedUpdateChoiceId = choice.id; renderGuided(); }); guidedUpdateChoices.append(button); }
+  }
+}
+
+async function loadUpdateFlow() {
+  const data = await callFutureYou({ operation: "progress_update_options", goalId: guided.goalId });
+  guided.liveRevision = data.liveRevision; guided.todayStep = data.todayStep; guided.updateChoices = data.visibleChoices; saveGuided(); renderGuided();
 }
 
 async function refreshSession() {
@@ -214,8 +231,17 @@ guidedPlan.addEventListener("click", async () => {
 });
 guidedApprove.addEventListener("click", async () => {
   guidedApprove.disabled = true;
-  try { const data = await callFutureYou({ operation: "approve_initial_plan", intakeInstanceId: guided.intakeId, planDraft: guided.planDraft }); guided.planApproved = true; saveGuided(); draft({ stage: "Action plan saved — this is the plan a user would see", result: data, plan: guided.planDraft }); }
+  try { const data = await callFutureYou({ operation: "approve_initial_plan", intakeInstanceId: guided.intakeId, planDraft: guided.planDraft }); guided.planApproved = true; saveGuided(); draft({ stage: "Action plan saved — this is the plan a user would see", result: data, plan: guided.planDraft }); await loadUpdateFlow(); }
   catch (error) { show(result, error instanceof Error ? error.message : "Unable to approve action plan.", true); } finally { guidedApprove.disabled = false; }
+});
+guidedSaveUpdate.addEventListener("click", async () => {
+  if (!guided.selectedUpdateChoiceId) return;
+  guidedSaveUpdate.disabled = true;
+  try {
+    const choice = (guided.updateChoices || []).find((item) => item.id === guided.selectedUpdateChoiceId);
+    const data = await callFutureYou({ operation: "record_progress_update", goalId: guided.goalId, clientUpdateId: crypto.randomUUID(), expectedLiveRevision: guided.liveRevision, selectedChoiceId: guided.selectedUpdateChoiceId, reasonCategory: choice?.normalizedState === "completed" ? null : guidedUpdateReason.value, reasonCode: guidedUpdateNote.value.trim() || choice?.normalizedState || "completed", variables: [], optionalNote: guidedUpdateNote.value.trim() || null });
+    draft({ stage: "Update saved", update: data, next: "The next step is to review the evidence and generate the Level 3 assessment draft." });
+  } catch (error) { show(result, error instanceof Error ? error.message : "Unable to save this update.", true); } finally { guidedSaveUpdate.disabled = false; }
 });
 
 document.querySelector("#copy").addEventListener("click", async () => {
