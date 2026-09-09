@@ -16,6 +16,7 @@ import { parseLockedRequestPayload } from "./request-contract.ts";
 import { deriveIntakeQuestion } from "./intake-question-deriver.ts";
 import { deriveNextIntakeTarget } from "./intake-turn-deriver.ts";
 import { deriveWeeklyCheckinQuestion, WEEKLY_CHECKIN_KEYS } from "./weekly-checkin-deriver.ts";
+import { UMBRELLA_ENTRIES, umbrellaEntry, umbrellaQuestionForTarget, routeUmbrellaAnswer } from "./umbrella-routing.ts";
 
 /**
  * Locked Future You service, kept separate from the legacy future-you-engine.
@@ -117,12 +118,14 @@ const TOPIC_START_INTENTS: Record<string, string> = {
   communicate_better: "Communicate better",
   set_better_boundaries: "Set better boundaries",
   become_more_confident: "Become more confident",
-  build_self_trust: "Build self-trust",
-  manage_my_time_better: "Manage my time better",
-  stop_putting_things_off: "Stop putting things off",
-  get_my_home_organized: "Get my home organized",
-  build_routines_that_work: "Build routines that work",
   feel_more_like_myself: "Feel more like myself",
+};
+
+// The routing layer is versioned independently from the topic it ultimately
+// selects, so a completed plan always retains the rule that chose its owner.
+const UMBRELLA_ROUTING_CONTRACTS: Record<string, string> = {
+  get_more_done: "time_procrastination",
+  get_daily_life_in_order: "home_routines",
 };
 
 function weeklyCheckinContent(value: unknown): Record<string, unknown> | null {
@@ -166,15 +169,20 @@ Deno.serve(async (req): Promise<Response> => {
     const payload = parsed.payload;
     if (payload.operation === "start_intake") {
       const topicKey = typeof payload.topicKey === "string" ? payload.topicKey : null;
-      const requirementSeeds = requirementsForTopic(topicKey ?? "");
-      const goalText = topicKey ? TOPIC_START_INTENTS[topicKey] : null;
+      const umbrella = topicKey ? umbrellaEntry(topicKey) : null;
+      const requirementSeeds = umbrella
+        ? [{ key: umbrella.initialKey, priority: "essential_now" as const, decisionArea: "routing" as const }]
+        : requirementsForTopic(topicKey ?? "");
+      const goalText = umbrella?.label ?? (topicKey ? TOPIC_START_INTENTS[topicKey] : null);
       if (requirementSeeds.length === 0 || !goalText) {
         return json({ error: "Choose one approved Future You topic before starting intake." }, 400);
       }
       const { data, error } = await context.admin.rpc("future_you_start_locked_intake", {
         p_user_id: context.user.id,
         p_goal_text: goalText,
-        p_topic_key: topicKey,
+        // Umbrellas deliberately begin without a topic binding. The first
+        // route answer chooses the bounded internal topic owner.
+        p_topic_key: umbrella ? null : topicKey,
       });
       if (error) {
         const clientErrors = new Set([
@@ -188,6 +196,29 @@ Deno.serve(async (req): Promise<Response> => {
 
       const intake = Array.isArray(data) ? data[0] : data;
       if (!intake?.intake_instance_id) throw new Error("Future You intake starter returned no intake ID.");
+      if (umbrella) {
+        const routingContractKey = UMBRELLA_ROUTING_CONTRACTS[topicKey ?? ""];
+        const { data: routingContract, error: routingContractError } = await context.admin
+          .from("future_you_contract_versions")
+          .select("id")
+          .eq("scope", "routing")
+          .eq("contract_key", routingContractKey)
+          .eq("status", "locked")
+          .maybeSingle();
+        if (routingContractError) throw routingContractError;
+        if (!routingContract) throw new Error("Future You umbrella routing contract is unavailable.");
+        const { error: routingBindingError } = await context.admin.from("goal_contract_bindings").insert({
+          goal_id: intake.goal_id,
+          user_id: context.user.id,
+          contract_version_id: routingContract.id,
+          binding_role: "routing",
+        });
+        if (routingBindingError) throw routingBindingError;
+      }
+      const { error: entryError } = await context.admin.from("intake_instances").update({
+        source_snapshot: { engine_version: "future-you-locked-v1", selected_entry_key: topicKey, selected_topic_key: umbrella ? null : topicKey, umbrella_key: umbrella ? topicKey : null },
+      }).eq("id", intake.intake_instance_id).eq("user_id", context.user.id);
+      if (entryError) throw entryError;
       const { error: seedError } = await context.admin.rpc("future_you_seed_locked_requirements", {
         p_user_id: context.user.id,
         p_intake_instance_id: intake.intake_instance_id,
@@ -284,6 +315,10 @@ Deno.serve(async (req): Promise<Response> => {
         context.admin.from("intake_facts").select("fact_key, fact_value").eq("intake_instance_id", intake.id).eq("user_id", context.user.id).order("updated_at"),
       ]);
       if (goalResult.error || factsResult.error || !goalResult.data) throw goalResult.error ?? factsResult.error ?? new Error("Goal not found.");
+      const umbrellaQuestion = umbrellaQuestionForTarget(String((intake.next_information_target as Record<string, unknown>)?.key ?? ""));
+      if (umbrellaQuestion) {
+        return json({ engine: "future-you-locked-v1", intakeInstanceId: intake.id, questionDraft: umbrellaQuestion, note: "This locked route question chooses an internal topic owner. It is not saved until Continue." });
+      }
       const result = await deriveIntakeQuestion({ goalText: goalResult.data.goal_text, target: intake.next_information_target, facts: factsResult.data ?? [], safetyIdentifier: await sha256Json(context.user.id) });
       return json({ engine: "future-you-locked-v1", intakeInstanceId: intake.id, questionDraft: result.question, usage: result.usage, note: "This question wording is a non-persisted draft. The locked intake target remains authoritative." });
     }
@@ -840,6 +875,39 @@ Deno.serve(async (req): Promise<Response> => {
         return json({ error: clientErrors.has(error.message) ? error.message : "Unable to record this intake answer." }, 400);
       }
       const result = data as { status?: string; next_target?: Record<string, unknown> };
+      const { data: currentIntake, error: currentIntakeError } = await context.admin.from("intake_instances")
+        .select("id, goal_id, source_snapshot").eq("id", payload.intakeInstanceId).eq("user_id", context.user.id).maybeSingle();
+      if (currentIntakeError || !currentIntake) throw currentIntakeError ?? new Error("Intake not found.");
+      const snapshot = currentIntake.source_snapshot && typeof currentIntake.source_snapshot === "object" && !Array.isArray(currentIntake.source_snapshot)
+        ? currentIntake.source_snapshot as Record<string, unknown> : {};
+      const entryKey = typeof snapshot.selected_entry_key === "string" ? snapshot.selected_entry_key : "";
+      const umbrella = umbrellaEntry(entryKey);
+      if (umbrella?.initialKey === payload.informationKey) {
+        const selectedTopic = routeUmbrellaAnswer(entryKey, payload.rawValue);
+        if (!selectedTopic) throw new Error("Unable to select an internal umbrella route.");
+        const { data: topic, error: topicError } = await context.admin.from("future_you_contract_versions")
+          .select("id").eq("scope", "topic").eq("contract_key", selectedTopic).eq("status", "locked").maybeSingle();
+        if (topicError || !topic) throw topicError ?? new Error("The selected internal topic is unavailable.");
+        const { error: bindingError } = await context.admin.from("goal_contract_bindings").insert({
+          goal_id: currentIntake.goal_id, user_id: context.user.id, contract_version_id: topic.id, binding_role: "topic",
+        });
+        if (bindingError) throw bindingError;
+        const internalRequirements = requirementsForTopic(selectedTopic);
+        const { error: seedError } = await context.admin.rpc("future_you_seed_locked_requirements", {
+          p_user_id: context.user.id, p_intake_instance_id: currentIntake.id,
+          p_requirements: internalRequirements.map((requirement) => ({ requirement_key: requirement.key, priority: requirement.priority, decision_area: requirement.decisionArea, target: { key: requirement.key, decisionArea: requirement.decisionArea } })),
+        });
+        if (seedError) throw seedError;
+        const { data: firstRequirement, error: firstRequirementError } = await context.admin.from("intake_requirements")
+          .select("target").eq("intake_instance_id", currentIntake.id).eq("applicability", "active").eq("resolution", "missing").eq("priority", "essential_now").order("id").limit(1).maybeSingle();
+        if (firstRequirementError || !firstRequirement?.target) throw firstRequirementError ?? new Error("The selected route has no intake target.");
+        const { error: routeUpdateError } = await context.admin.from("intake_instances").update({
+          status: "collecting", next_information_target: firstRequirement.target,
+          source_snapshot: { ...snapshot, selected_topic_key: selectedTopic, routed_from_umbrella: entryKey },
+        }).eq("id", currentIntake.id).eq("user_id", context.user.id);
+        if (routeUpdateError) throw routeUpdateError;
+        result.status = "collecting"; result.next_target = firstRequirement.target;
+      }
       if (result?.status === "collecting") {
         const [intakeResult, goalResult, factsResult, requirementsResult] = await Promise.all([
           context.admin.from("intake_instances").select("id, goal_id").eq("id", payload.intakeInstanceId).eq("user_id", context.user.id).maybeSingle(),
@@ -877,6 +945,9 @@ Deno.serve(async (req): Promise<Response> => {
       tester: { email: context.user.email ?? null, role: context.role },
       contract: {
         intakeTargetCatalogVersion: TARGET_CATALOG_VERSION,
+        directEntryCount: Object.keys(TOPIC_START_INTENTS).length,
+        umbrellaEntryCount: Object.keys(UMBRELLA_ENTRIES).length,
+        userFacingEntryCount: Object.keys(TOPIC_START_INTENTS).length + Object.keys(UMBRELLA_ENTRIES).length,
         topicRequirementSetCount: Object.keys(TOPIC_REQUIREMENT_SEEDS).length,
         controlledTopicModelCount: Object.keys(TOPIC_PROGRESSION_CONFIGS).length,
         activeVersionCount: scopes.length,

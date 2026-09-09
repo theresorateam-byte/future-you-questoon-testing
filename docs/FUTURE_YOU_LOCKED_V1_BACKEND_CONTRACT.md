@@ -6,7 +6,7 @@ This document is the implementation contract for the locked Future You architect
 
 ## Non-negotiable rules
 
-- The engine is one universal system with ten approved topic systems and three routing relationships.
+- The engine is one universal system with ten internal topic systems and three routing relationships. Users enter through seven choices: five direct systems plus the two umbrellas below.
 - The Original Action Plan is immutable.
 - The Live Action Plan is the current source of truth; only its uncompleted future portion may change.
 - Every intake answer, update, correction, and decision trace is append-only.
@@ -30,18 +30,17 @@ The following is product-controlled, versioned configuration. It must not be cop
 
 Every goal records the exact version IDs that governed its creation and later decisions.
 
-## Approved topics
+## User-facing entries
 
 1. Build Stronger Relationships
 2. Communicate Better
 3. Set Better Boundaries
 4. Become More Confident
-5. Build Self-Trust
-6. Manage My Time Better
-7. Stop Putting Things Off
-8. Get My Home Organized
-9. Build Routines That Work for Me
-10. Feel More Like Myself
+5. Get More Done → internally routes to Time Management or Putting Things Off.
+6. Get Daily Life in Order → internally routes to Home Organization or Routines.
+7. Feel More Like Myself
+
+Build Self-Trust is an internal specialist route. Time, Putting Things Off, Home Organization, and Routines are internal owners once their umbrella's first routing question is answered; they are not additional user-facing choices.
 
 Routing contracts:
 

@@ -57,14 +57,11 @@ const topics = [
   ["communicate_better", "Communicate better"],
   ["set_better_boundaries", "Set better boundaries"],
   ["become_more_confident", "Become more confident"],
-  ["build_self_trust", "Build self-trust"],
-  ["manage_my_time_better", "Manage my time better"],
-  ["stop_putting_things_off", "Stop putting things off"],
-  ["get_my_home_organized", "Get my home organized"],
-  ["build_routines_that_work", "Build routines that work"],
+  ["get_more_done", "Get more done"],
+  ["get_daily_life_in_order", "Get daily life in order"],
   ["feel_more_like_myself", "Feel more like myself"],
 ];
-let selectedTopic = "build_routines_that_work";
+let selectedTopic = "get_more_done";
 
 function renderTopics() {
   topicPicker.innerHTML = "";
@@ -78,7 +75,7 @@ function renderTopics() {
 
 const presets = {
   contract_status: { operation: "contract_status" },
-  start_intake: { operation: "start_intake", topicKey: "build_routines_that_work" },
+  start_intake: { operation: "start_intake", topicKey: "get_more_done" },
   today_step: { operation: "today_step", goalId: "replace-with-goal-id" },
   progress_update_options: { operation: "progress_update_options", goalId: "replace-with-goal-id" },
   custom: { operation: "contract_status" },
