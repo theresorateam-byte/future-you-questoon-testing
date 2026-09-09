@@ -18,6 +18,7 @@ const payload = document.querySelector("#payload");
 const run = document.querySelector("#run");
 const result = document.querySelector("#result");
 const guidedBegin = document.querySelector("#guided-begin");
+const guidedReset = document.querySelector("#guided-reset");
 const guidedFlow = document.querySelector("#guided-flow");
 const guidedStage = document.querySelector("#guided-stage");
 const guidedQuestionWrap = document.querySelector("#guided-question-wrap");
@@ -197,6 +198,22 @@ async function loadUpdateFlow() {
   guided.liveRevision = data.liveRevision; guided.todayStep = data.todayStep; guided.updateChoices = data.visibleChoices; saveGuided(); renderGuided();
 }
 
+async function syncGuidedIntake() {
+  if (!guided?.goalId || !guided?.intakeId) return false;
+  const state = await callFutureYou({ operation: "intake_state", goalId: guided.goalId });
+  const current = state.intake;
+  if (!current || current.id !== guided.intakeId) throw new Error("This browser test is no longer the current intake. Reset the browser test and begin again.");
+  const serverTarget = current.next_information_target;
+  if (!serverTarget?.key || serverTarget.key === guided.nextTarget?.key) return false;
+  guided.nextTarget = serverTarget;
+  guided.selectedOptionIds = [];
+  guidedAnswer.value = "";
+  guided.questionDraft = (await callFutureYou({ operation: "derive_intake_question", intakeInstanceId: guided.intakeId })).questionDraft;
+  saveGuided(); renderGuided();
+  show(result, "The server had moved to the next question. The correct question is now loaded; your previous saved answer was not changed.");
+  return true;
+}
+
 async function refreshSession() {
   const { data: { session: activeSession } } = await supabase.auth.getSession();
   if (activeSession) {
@@ -250,10 +267,22 @@ guidedSubmit.addEventListener("click", async () => {
   const answer = guidedAnswer.value.trim(); if (!answer) return;
   guidedSubmit.disabled = true;
   try {
+    if (await syncGuidedIntake()) return;
     const data = await callFutureYou({ operation: "record_intake_answer", intakeInstanceId: guided.intakeId, informationKey: guided.nextTarget.key, rawValue: { answer, selectedOptionIds: guided.selectedOptionIds || [] } });
     guided.nextTarget = data.result.next_target; guidedAnswer.value = ""; guided.selectedOptionIds = []; guided.questionDraft = guided.nextTarget ? (await callFutureYou({ operation: "derive_intake_question", intakeInstanceId: guided.intakeId })).questionDraft : null; saveGuided(); renderGuided();
-  } catch (error) { show(result, error instanceof Error ? error.message : "Unable to save this answer.", true); }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to save this answer.";
+    if (message.includes("future_you_answer_not_for_current_target")) {
+      try { if (await syncGuidedIntake()) return; } catch { /* The original error remains useful. */ }
+    }
+    show(result, message, true);
+  }
   finally { guidedSubmit.disabled = false; }
+});
+guidedReset.addEventListener("click", () => {
+  localStorage.removeItem("future-you-guided-test");
+  guided = null; guidedFlow.classList.add("hidden"); guidedWeekly.classList.add("hidden");
+  show(result, "This browser’s saved test state was cleared. No Supabase records were deleted. Choose a topic and begin a fresh test.");
 });
 guidedSource.addEventListener("click", async () => {
   guidedSource.disabled = true;

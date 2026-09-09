@@ -43,6 +43,7 @@
         <div id="topic-picker" class="topic-picker"></div>
         <p class="subtle">In the product, choosing a topic starts the conversation. The questions establish the specific goal; there is no typed goal field.</p>
         <button id="guided-begin" type="button">Begin test intake</button>
+        <button id="guided-reset" class="secondary" type="button">Reset this browser test</button>
       </div>
       <div id="guided-flow" class="hidden">
         <p id="guided-stage" class="status"></p>
@@ -109,6 +110,6 @@
       <h2>Result</h2>
       <pre id="result" class="status">Sign in, then run a protected operation.</pre>
     </section>
-    <script type="module" src="./app.js"></script>
+    <script type="module" src="./app.js?v=target-sync-fix"></script>
   </body>
 </html>
