@@ -3,6 +3,9 @@ import { deriveNextIntakeTarget } from "./intake-turn-deriver.ts";
 import { deriveInitialPlan } from "./plan-deriver.ts";
 import { deriveSourceHandoff } from "./source-deriver.ts";
 import { buildVisibleUpdateChoices, currentTodayStep } from "./update-contract.ts";
+import { deriveWeeklyCheckinQuestion } from "./weekly-checkin-deriver.ts";
+import { deriveProgressionAssessment } from "./progression-deriver.ts";
+import { TOPIC_PROGRESSION_CONFIGS } from "./topic-progression-config.ts";
 import { requirementsForTopic } from "./topic-requirements.ts";
 import { umbrellaEntry, umbrellaQuestionForTarget, routeUmbrellaAnswer } from "./umbrella-routing.ts";
 
@@ -44,6 +47,22 @@ function finding(transcript: Record<string, unknown>[]) {
     ...(noChoices ? [`${noChoices} selectable question(s) had no visible choices.`] : []),
     ...(!repeated && !noChoices ? ["No mechanical issue was found in this preview. Review whether each question feels necessary and well-timed."] : []),
   ];
+}
+
+function simulatedProgress(plan: Record<string, unknown>) {
+  const choices = buildVisibleUpdateChoices(plan);
+  return [
+    { id: "sim-update-1", selectedChoice: choices[0] ?? null, normalizedState: "completed", reasonCategory: null, reasonCode: "completed", optionalNote: "Completed the planned step." },
+    { id: "sim-update-2", selectedChoice: choices[1] ?? null, normalizedState: "partly_completed", reasonCategory: "time", reasonCode: "time", optionalNote: "Used the smaller version because the day was full." },
+    { id: "sim-update-3", selectedChoice: choices[2] ?? null, normalizedState: "not_today", reasonCategory: "capacity", reasonCode: "capacity", optionalNote: "Did not have the capacity for the planned step." },
+  ];
+}
+
+function initialProgressState(topicKey: string) {
+  const config = TOPIC_PROGRESSION_CONFIGS[topicKey];
+  if (!config) return null;
+  const [route, routeConfig] = Object.entries(config.routes)[0];
+  return { model: config.model, route, ...(topicKey === "become_more_confident" ? { contextKey: "synthetic_test_context" } : {}), units: Object.fromEntries(routeConfig.units.map((unit) => [unit, routeConfig.numberedStates ? { level: 2 } : { status: "early" }])) };
 }
 
 /** Runs real Locked-v1 wording, sequencing, plan, and update-choice code in memory. Nothing is written to Supabase. */
@@ -88,7 +107,22 @@ export async function simulateFlowBatch(entryKey: string, caseCount: number, saf
     }
     const todayStep = plan ? currentTodayStep(plan) : null;
     const updateChoices = plan ? buildVisibleUpdateChoices(plan) : [];
-    cases.push({ caseNumber: caseNumber + 1, selectedEntry: entryKey, goal, internalOwner: internalTopic, transcript, plan, sourceError, planError, todayStep, updateChoices, findings: finding(transcript) });
+    const progressUpdates = plan ? simulatedProgress(plan) : [];
+    let weeklyQuestion: Record<string, unknown> | null = null;
+    let assessment: Record<string, unknown> | null = null;
+    let progressError: string | null = null;
+    try {
+      if (plan) {
+        const weekly = await deriveWeeklyCheckinQuestion({ goalText: goal, dailyUpdates: progressUpdates, previousAnswers: [], candidates: ["week_overview", "signal_follow_up", "barrier_detail"], safetyIdentifier });
+        weeklyQuestion = weekly?.question ?? null;
+        const state = initialProgressState(internalTopic);
+        if (state) {
+          const evidence = progressUpdates.map((update) => ({ id: update.id, source_kind: "progress_update", evidence_content: update, quality: "synthetic", context: { simulation: true }, occurred_at: new Date().toISOString(), recorded_at: new Date().toISOString() }));
+          assessment = (await deriveProgressionAssessment({ topicKey: internalTopic, currentState: state, evidence, safetyIdentifier })).assessment;
+        }
+      }
+    } catch (error) { progressError = error instanceof Error ? error.message : "Progress simulation failed."; }
+    cases.push({ caseNumber: caseNumber + 1, selectedEntry: entryKey, goal, internalOwner: internalTopic, transcript, plan, sourceError, planError, todayStep, updateChoices, progressUpdates, weeklyQuestion, assessment, progressError, findings: finding(transcript) });
   }
   return { cases, note: "This is an in-memory replay. Questions, sequencing, action-plan derivation, and update choices use Locked v1 code; no intake, plan, update, or user content was saved." };
 }

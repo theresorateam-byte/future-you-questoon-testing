@@ -2,6 +2,27 @@ import { requestOpenAiDraft } from "./openai-draft.ts";
 
 type Value = Record<string, unknown>;
 
+const SAFETY_TARGETS = new Set([
+  "relationship_safety_viability", "communication_safety_power", "boundary_safety_power", "confidence_safety_power",
+  "home_safety_reality", "routine_safety_reality", "identity_safety_gate",
+]);
+
+function naturalSafetyProbe(key: string) {
+  if (!SAFETY_TARGETS.has(key)) return null;
+  return {
+    informationKey: key,
+    question: "What usually happens when you try to make a change like this?",
+    control: "single_select",
+    options: [
+      { id: "respected", label: "People usually respect it" },
+      { id: "pushback_manageable", label: "There may be pushback, but I can handle it" },
+      { id: "bigger_problem", label: "It often turns into a bigger problem" },
+      { id: "not_sure", label: "I am not sure what would happen" },
+    ],
+    whyThisMatters: "This helps Future You keep the plan realistic and avoid assuming you have more room to act than you do.",
+  };
+}
+
 const schema = { type: "object", additionalProperties: false, required: ["informationKey", "question", "control", "options", "whyThisMatters"], properties: {
   informationKey: { type: "string" }, question: { type: "string", minLength: 6, maxLength: 240 },
   control: { type: "string", enum: ["single_select", "multi_select", "text", "number", "date", "time"] },
@@ -11,6 +32,9 @@ const schema = { type: "object", additionalProperties: false, required: ["inform
 
 /** Non-persisted wording only: the locked intake target remains the authority. */
 export async function deriveIntakeQuestion(input: { goalText: string; target: Value; facts: Value[]; safetyIdentifier: string }) {
+  const keyName = String(input.target.key ?? "");
+  const naturalProbe = naturalSafetyProbe(keyName);
+  if (naturalProbe) return { question: naturalProbe, usage: null };
   const key = Deno.env.get("OPENAI_API_KEY");
   if (!key) throw new Error("AI question wording is not configured.");
   const prepared = { goal: input.goalText.slice(0, 1000), currentInformationKey: String(input.target.key ?? ""), target: input.target, priorAnswers: input.facts.slice(0, 40).map((fact) => ({ key: String(fact.fact_key ?? ""), answer: fact.fact_value })) };
