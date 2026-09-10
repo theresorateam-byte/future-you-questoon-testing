@@ -544,22 +544,31 @@ Deno.serve(async (req): Promise<Response> => {
         p_topic_key: null,
       });
       if (startError || !Array.isArray(started) || !started[0]?.goal_id || !started[0]?.intake_instance_id) {
-        throw startError ?? new Error("Unable to start the isolated update test.");
+        const knownStartError = startError?.message;
+        const safeStartCodes = new Set([
+          "future_you_user_required", "future_you_goal_text_invalid", "future_you_required_contracts_unavailable",
+          "future_you_topic_not_found", "future_you_topic_not_available_for_direct_start",
+        ]);
+        return json({
+          error: "The separate update test could not be started.",
+          code: knownStartError && safeStartCodes.has(knownStartError) ? knownStartError : "update_test_start_failed",
+          stage: "update_test_setup",
+        }, 502);
       }
       const fixture = started[0] as { goal_id: string; intake_instance_id: string };
       const { data: topic, error: topicError } = await context.admin.from("future_you_contract_versions")
         .select("id").eq("contract_key", "time_management").eq("scope", "topic").eq("status", "locked").maybeSingle();
-      if (topicError || !topic) throw topicError ?? new Error("The update-test topic contract is unavailable.");
+      if (topicError || !topic) return json({ error: "The update-test topic setup is unavailable.", code: "update_test_topic_unavailable", stage: "update_test_setup" }, 502);
       const [{ error: bindingError }, { error: intakeError }] = await Promise.all([
         context.admin.from("goal_contract_bindings").insert({ goal_id: fixture.goal_id, user_id: context.user.id, contract_version_id: topic.id, binding_role: "topic" }),
         context.admin.from("intake_instances").update({ status: "validated", next_information_target: null, source_snapshot: UPDATE_TEST_SOURCE }).eq("id", fixture.intake_instance_id).eq("user_id", context.user.id),
       ]);
-      if (bindingError || intakeError) throw bindingError ?? intakeError;
+      if (bindingError || intakeError) return json({ error: "The separate update test could not be prepared.", code: bindingError ? "update_test_topic_binding_failed" : "update_test_source_setup_failed", stage: "update_test_setup" }, 502);
       const integrityHash = await sha256Json(UPDATE_TEST_PLAN);
       const { data: approved, error: approveError } = await context.admin.rpc("future_you_approve_locked_initial_plan", {
         p_user_id: context.user.id, p_intake_instance_id: fixture.intake_instance_id, p_plan: UPDATE_TEST_PLAN, p_integrity_hash: integrityHash,
       });
-      if (approveError) throw approveError;
+      if (approveError) return json({ error: "The separate update test plan could not be prepared.", code: "update_test_plan_setup_failed", stage: "update_test_setup" }, 502);
       const todayStep = currentTodayStep(UPDATE_TEST_PLAN);
       return json({
         engine: "future-you-locked-v1",
