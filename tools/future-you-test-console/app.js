@@ -60,7 +60,6 @@ const sandboxUpdateChoices = document.querySelector("#sandbox-update-choices");
 const sandboxUpdateReason = document.querySelector("#sandbox-update-reason");
 const sandboxUpdateNote = document.querySelector("#sandbox-update-note");
 const sandboxSaveUpdate = document.querySelector("#sandbox-save-update");
-const batchSize = document.querySelector("#batch-size");
 const batchEntry = document.querySelector("#batch-entry");
 const runBatch = document.querySelector("#run-batch");
 const batchReport = document.querySelector("#batch-report");
@@ -448,7 +447,7 @@ sandboxSaveUpdate.addEventListener("click", async () => {
 runBatch.addEventListener("click", async () => {
   runBatch.disabled = true;
   try {
-    const data = await callFutureYou({ operation: "simulate_flow_batch", entryKey: batchEntry.value, caseCount: Number(batchSize.value) });
+    const data = await callFutureYou({ operation: "simulate_flow_batch", entryKey: batchEntry.value, caseCount: 1 });
     batchReport.innerHTML = batchHtml(data.cases); batchReport.classList.remove("hidden");
     show(result, data.note || "Real-flow simulation completed.");
   } catch (error) { show(result, error instanceof Error ? error.message : "Unable to create batch report.", true); }

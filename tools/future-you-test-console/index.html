@@ -40,7 +40,7 @@
 
     <section id="guided-test">
       <h2>2. Guided product test</h2>
-      <p class="subtle">This is the human-readable test path. It stores test answers in your tester account, shows every AI draft before it is saved, and keeps the technical console below for diagnosis.</p>
+      <p class="subtle">This is the human-readable test path. It stores test answers in your tester account and shows each AI draft before it is saved.</p>
       <div id="guided-start">
         <label>Choose what you want to work on</label>
         <div id="topic-picker" class="topic-picker"></div>
@@ -93,7 +93,7 @@
       </div>
     </section>
 
-    <section id="update-sandbox">
+    <section id="update-sandbox" class="hidden">
       <h2>3. Open an action plan and test updates</h2>
       <p class="subtle">Open an approved plan already in your tester account. This skips intake so you can inspect the plan in plain language and immediately test the daily-update flow.</p>
       <button id="load-active-plans" type="button">Find approved test plans</button>
@@ -112,17 +112,15 @@
     </section>
 
     <section id="batch-lab">
-      <h2>4. Real-flow batch simulator</h2>
-      <p class="subtle">Run fictional people through the same Locked v1 question wording, question sequencing, routing, action-plan draft, and update-choice logic. Nothing is saved. Each transcript shows every question and the simulated button choice.</p>
+      <h2>3. Run an automatic example</h2>
+      <p class="subtle">See one fictional person move through the same question wording, question order, routing, action-plan draft, and update choices. Nothing is saved. You can review every question and selected response.</p>
       <label for="batch-entry">Start from this user choice</label>
       <select id="batch-entry"><option value="set_better_boundaries">Set Better Boundaries</option><option value="get_more_done">Get More Done</option><option value="get_daily_life_in_order">Get Daily Life in Order</option><option value="build_stronger_relationships">Build Stronger Relationships</option><option value="communicate_better">Communicate Better</option><option value="become_more_confident">Become More Confident</option><option value="feel_more_like_myself">Feel More Like Myself</option></select>
-      <label for="batch-size">Number of fictional people</label>
-      <select id="batch-size"><option value="1" selected>1 person</option><option value="2">2 people</option><option value="3">3 people</option></select>
-      <button id="run-batch" type="button">Run flow simulation</button>
+      <button id="run-batch" type="button">Run one example</button>
       <article id="batch-report" class="plan-document hidden"></article>
     </section>
 
-    <section>
+    <section class="hidden" aria-hidden="true">
       <h2>5. Technical console</h2>
       <p class="subtle">Start with <code>contract_status</code>. The response area shows the exact server result so a tester can follow the staged runbook without directly accessing database tables.</p>
       <label for="preset">Quick start</label>
@@ -140,9 +138,9 @@
     </section>
 
     <section>
-      <h2>Result</h2>
+      <h2>Test result</h2>
       <pre id="result" class="status">Sign in, then run a protected operation.</pre>
     </section>
-    <script type="module" src="./app.js?v=real-flow-batch-v2"></script>
+    <script type="module" src="./app.js?v=simplified-test-lab-v1"></script>
   </body>
 </html>

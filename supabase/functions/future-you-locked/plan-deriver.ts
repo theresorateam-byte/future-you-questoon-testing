@@ -26,8 +26,17 @@ const schema = { type: "object", additionalProperties: false, required: ["contra
 
 export async function deriveInitialPlan(sourceSnapshot: Record<string, unknown>, safetyIdentifier?: string) {
   const key = Deno.env.get("OPENAI_API_KEY"); if (!key) throw new Error("AI plan derivation is not configured.");
-  const { draft: plan, usage } = await requestOpenAiDraft(key, { model:"gpt-5.6-terra", reasoning:{effort:"medium"}, store:false, max_output_tokens:900, instructions:"Create a cautious initial Future You plan from only the frozen Source handoff. Do not invent facts. Preserve goal, entry gate, and mode exactly. If gate is active use firstTodayStep and set prepareAction null; otherwise use prepareAction and set firstTodayStep null. Set completedPortion to an empty array. Put only future plan units in remainingPlan. No fixed day count or scores.", input:JSON.stringify({sourceSnapshot:prepareInitialPlanInput(sourceSnapshot)}), text:{format:{type:"json_schema",name:"locked_initial_plan",strict:true,schema}} }, "AI plan derivation", safetyIdentifier);
-  const validation = validateInitialPlanDraft(plan, sourceSnapshot);
+  const prepared = prepareInitialPlanInput(sourceSnapshot);
+  const instructions = "Create a cautious initial Future You plan from only the frozen Source handoff. Do not invent facts. This is a strict contract: goal.intendedResult must exactly equal normalizedGoal.value; entryGate and mode must exactly equal the Source values; sourceReferences must include normalizedGoal, safety, realism, capacity, initialMode, milestone, and guardrails; milestones, successMarkers, and guardrails must each contain concrete text; completedPortion must be []; remainingPlan must contain future-only plan units. If entryGate is active, firstTodayStep must include action, minimumVersion, and successMarker and prepareAction must be null. Otherwise firstTodayStep must be null and prepareAction must include action. No fixed day count or scores.";
+  const request = (extra = "") => requestOpenAiDraft(key, { model:"gpt-5.6-terra", reasoning:{effort:"medium"}, store:false, max_output_tokens:900, instructions:`${instructions}${extra}`, input:JSON.stringify({sourceSnapshot:prepared}), text:{format:{type:"json_schema",name:"locked_initial_plan",strict:true,schema}} }, "AI plan derivation", safetyIdentifier);
+  let result = await request();
+  let validation = validateInitialPlanDraft(result.draft, sourceSnapshot);
+  // One correction attempt is allowed only when the model returned a structured
+  // draft that missed the locked contract; provider failures are never retried.
+  if (!validation.valid) {
+    result = await request(` Correct the prior draft's contract errors: ${validation.errors.map((error) => error.path).join(", ")}.`);
+    validation = validateInitialPlanDraft(result.draft, sourceSnapshot);
+  }
   if (!validation.valid) throw new Error(`AI plan did not satisfy Locked v1: ${validation.errors.map((e) => e.path).join(", ")}`);
-  return { plan, usage };
+  return { plan: result.draft, usage: result.usage };
 }
