@@ -40,6 +40,9 @@ const guidedUpdateChoices = document.querySelector("#guided-update-choices");
 const guidedUpdateReason = document.querySelector("#guided-update-reason");
 const guidedUpdateNote = document.querySelector("#guided-update-note");
 const guidedSaveUpdate = document.querySelector("#guided-save-update");
+const guidedWeekTest = document.querySelector("#guided-week-test");
+const guidedRunWeek = document.querySelector("#guided-run-week");
+const guidedWeekTimeline = document.querySelector("#guided-week-timeline");
 const guidedWeekly = document.querySelector("#guided-weekly");
 const guidedWeeklyStatus = document.querySelector("#guided-weekly-status");
 const guidedWeeklyStart = document.querySelector("#guided-weekly-start");
@@ -50,6 +53,11 @@ const guidedWeeklyOptions = document.querySelector("#guided-weekly-options");
 const guidedWeeklyAnswer = document.querySelector("#guided-weekly-answer");
 const guidedWeeklySubmit = document.querySelector("#guided-weekly-submit");
 const guidedWeeklyComplete = document.querySelector("#guided-weekly-complete");
+const guidedAssessment = document.querySelector("#guided-assessment");
+const guidedDeriveAssessment = document.querySelector("#guided-derive-assessment");
+const guidedApplyAssessment = document.querySelector("#guided-apply-assessment");
+const guidedDeriveRevision = document.querySelector("#guided-derive-revision");
+const guidedApplyRevision = document.querySelector("#guided-apply-revision");
 const topicPicker = document.querySelector("#topic-picker");
 const createUpdateScenario = document.querySelector("#create-update-scenario");
 const loadActivePlans = document.querySelector("#load-active-plans");
@@ -212,6 +220,7 @@ function renderGuided() {
   }
   if (guided?.liveRevision && guided?.todayStep) {
     guidedUpdate.classList.remove("hidden");
+    guidedWeekTest.classList.remove("hidden");
     guidedTodayStep.textContent = `Today’s Step: ${guided.todayStep.action}\nSmallest version: ${guided.todayStep.minimumVersion}`;
     guidedUpdateChoices.innerHTML = "";
     for (const choice of guided.updateChoices || []) { const button = document.createElement("button"); button.type = "button"; button.textContent = choice.label; button.classList.toggle("selected", guided.selectedUpdateChoiceId === choice.id); button.addEventListener("click", () => { guided.selectedUpdateChoiceId = choice.id; renderGuided(); }); guidedUpdateChoices.append(button); }
@@ -247,6 +256,11 @@ function renderGuided() {
       guidedWeeklyComplete.classList.toggle("hidden", !enoughAnswers);
     }
     guidedWeeklyStart.classList.toggle("hidden", Boolean(guided.weeklyCheckInId));
+    guidedAssessment.classList.toggle("hidden", !guided.weeklyCompleted);
+    guidedApplyAssessment.classList.toggle("hidden", !guided.assessmentDraft);
+    guidedDeriveRevision.classList.toggle("hidden", !guided.assessmentId);
+    guidedApplyRevision.classList.toggle("hidden", !guided.revisionDraft);
+    if (guided.weekEvents) { guidedWeekTimeline.innerHTML = weekHtml(guided.weekEvents, guided.weekAssessmentError); guidedWeekTimeline.classList.remove("hidden"); }
   }
 }
 
@@ -409,12 +423,39 @@ guidedSaveUpdate.addEventListener("click", async () => {
   try {
     const choice = (guided.updateChoices || []).find((item) => item.id === guided.selectedUpdateChoiceId);
     const data = await callFutureYou({ operation: "record_progress_update", goalId: guided.goalId, clientUpdateId: crypto.randomUUID(), expectedLiveRevision: guided.liveRevision, selectedChoiceId: guided.selectedUpdateChoiceId, reasonCategory: choice?.normalizedState === "completed" ? null : guidedUpdateReason.value, reasonCode: guidedUpdateNote.value.trim() || choice?.normalizedState || "completed", variables: [], optionalNote: guidedUpdateNote.value.trim() || null });
+    guided.lastProgressUpdateId = data.result?.progress_update_id;
     draft({ stage: "Update saved", update: data, next: "The next step is to review the evidence and generate the Level 3 assessment draft." });
     if (guided.planApproved) {
       guided.weeklyState = await callFutureYou({ operation: "weekly_checkin_state", goalId: guided.goalId });
       saveGuided(); renderGuided();
     }
   } catch (error) { show(result, error instanceof Error ? error.message : "Unable to save this update.", true); } finally { guidedSaveUpdate.disabled = false; }
+});
+
+guidedRunWeek.addEventListener("click", async () => {
+  if (!guided?.goalId) return;
+  guidedRunWeek.disabled = true;
+  const pattern = [
+    { day: 1, state: "completed", reason: null, note: "Started the chosen task for ten minutes." },
+    { day: 2, state: "partly_completed", reason: "time", note: "Did the smaller version because the day was busy." },
+    { day: 3, state: "not_today", reason: "capacity", note: "Did not have the energy for it today." },
+    { day: 5, state: "completed", reason: null, note: "Completed the planned ten-minute start." },
+    { day: 7, state: "partly_completed", reason: "capacity", note: "Opened the task but stopped after the minimum version." },
+  ];
+  const events = [];
+  try {
+    for (const item of pattern) {
+      const choice = (guided.updateChoices || []).find((option) => option.normalizedState === item.state);
+      if (!choice) throw new Error(`This plan has no ${item.state.replaceAll("_", " ")} update choice.`);
+      const occurredAt = new Date(Date.now() - (7 - item.day) * 24 * 60 * 60 * 1000).toISOString();
+      const saved = await callFutureYou({ operation: "record_progress_update", goalId: guided.goalId, clientUpdateId: crypto.randomUUID(), expectedLiveRevision: guided.liveRevision, selectedChoiceId: choice.id, reasonCategory: item.reason, reasonCode: item.state, variables: [], optionalNote: item.note, occurredAt });
+      guided.lastProgressUpdateId = saved.result?.progress_update_id;
+      events.push({ day: item.day, choice: choice.label, note: item.note });
+    }
+    guided.weekEvents = events; guided.weekAssessmentError = null; guided.weeklyState = await callFutureYou({ operation: "weekly_checkin_state", goalId: guided.goalId }); saveGuided(); renderGuided();
+    show(result, "The test week is saved against this real action plan. Start the weekly review next; its questions should reflect this exact pattern.");
+  } catch (error) { guided.weekEvents = events; guided.weekAssessmentError = error instanceof Error ? error.message : "Unknown test-week error"; saveGuided(); renderGuided(); show(result, guided.weekEvents.length ? "The test week was partly saved. The timeline shows exactly how far it got." : guided.weekAssessmentError, true); }
+  finally { guidedRunWeek.disabled = false; }
 });
 
 async function loadWeeklyQuestion() {
@@ -451,9 +492,30 @@ guidedWeeklyComplete.addEventListener("click", async () => {
   try {
     const data = await callFutureYou({ operation: "complete_weekly_checkin", goalId: guided.goalId, checkInId: guided.weeklyCheckInId });
     guided.weeklyCompleted = true; guided.weeklyQuestionDraft = null; guided.weeklyState = await callFutureYou({ operation: "weekly_checkin_state", goalId: guided.goalId }); saveGuided(); renderGuided();
-    draft({ stage: "Weekly review complete", result: data, next: "These answers are canonical evidence. The assessment and future-only plan revision can use them; the Original Plan remains unchanged." });
+    draft({ stage: "Weekly review complete", result: data, next: "Now show the AI assessment, then the future-only plan revision." });
   } catch (error) { show(result, error instanceof Error ? error.message : "Unable to finish this weekly review.", true); }
   finally { guidedWeeklyComplete.disabled = false; }
+});
+
+guidedDeriveAssessment.addEventListener("click", async () => {
+  guidedDeriveAssessment.disabled = true;
+  try { const data = await callFutureYou({ operation: "derive_progression_assessment", goalId: guided.goalId }); guided.assessmentDraft = data.assessmentDraft; guided.l3Revision = data.l3Revision; draft({ stage: "AI weekly assessment — review it before applying", assessment: data.assessmentDraft }); saveGuided(); renderGuided(); }
+  catch (error) { show(result, error instanceof Error ? error.message : "Unable to create the weekly assessment.", true); } finally { guidedDeriveAssessment.disabled = false; }
+});
+guidedApplyAssessment.addEventListener("click", async () => {
+  guidedApplyAssessment.disabled = true;
+  try { const data = await callFutureYou({ operation: "apply_progression_assessment", goalId: guided.goalId, assessment: guided.assessmentDraft, expectedRevision: guided.l3Revision }); guided.assessmentId = data.result?.assessment_id; guided.l3Revision = data.result?.resulting_revision; saveGuided(); renderGuided(); }
+  catch (error) { show(result, error instanceof Error ? error.message : "Unable to apply the weekly assessment.", true); } finally { guidedApplyAssessment.disabled = false; }
+});
+guidedDeriveRevision.addEventListener("click", async () => {
+  guidedDeriveRevision.disabled = true;
+  try { const data = await callFutureYou({ operation: "derive_live_plan_revision", goalId: guided.goalId, progressUpdateId: guided.lastProgressUpdateId || "00000000-0000-4000-8000-000000000000", assessmentId: guided.assessmentId, expectedRevision: guided.liveRevision }); guided.revisionDraft = data.planDraft; guided.livePlanChange = data.livePlanChange; guided.revisionValidation = data.validationResult; showPlan(planDocument, data.planDraft, "Revised action-plan draft"); saveGuided(); renderGuided(); }
+  catch (error) { show(result, error instanceof Error ? error.message : "Unable to create the revised action plan.", true); } finally { guidedDeriveRevision.disabled = false; }
+});
+guidedApplyRevision.addEventListener("click", async () => {
+  guidedApplyRevision.disabled = true;
+  try { const data = await callFutureYou({ operation: "revise_live_plan", goalId: guided.goalId, progressUpdateId: guided.lastProgressUpdateId || "00000000-0000-4000-8000-000000000000", assessmentId: guided.assessmentId, expectedRevision: guided.liveRevision, planDraft: guided.revisionDraft, livePlanChange: guided.livePlanChange, validationResult: guided.revisionValidation }); guided.liveRevision = data.result?.revision || guided.liveRevision + 1; guided.planDraft = guided.revisionDraft; saveGuided(); renderGuided(); }
+  catch (error) { show(result, error instanceof Error ? error.message : "Unable to apply the revised action plan.", true); } finally { guidedApplyRevision.disabled = false; }
 });
 
 loadActivePlans.addEventListener("click", async () => {

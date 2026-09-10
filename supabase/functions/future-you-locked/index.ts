@@ -130,6 +130,16 @@ const UMBRELLA_ROUTING_CONTRACTS: Record<string, string> = {
   get_more_done: "time_procrastination",
   get_daily_life_in_order: "home_routines",
 };
+const NATURAL_SAFETY_TARGETS = new Set([
+  "relationship_safety_viability", "communication_safety_power", "boundary_safety_power", "confidence_safety_power",
+  "home_safety_reality", "routine_safety_reality", "identity_safety_gate",
+]);
+
+function selectedOptionIds(value: unknown): string[] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  const ids = (value as Record<string, unknown>).selectedOptionIds;
+  return Array.isArray(ids) ? ids.filter((item): item is string => typeof item === "string") : [];
+}
 
 const UPDATE_TEST_SOURCE = {
   engine_version: "future-you-locked-v1",
@@ -994,6 +1004,17 @@ Deno.serve(async (req): Promise<Response> => {
       if (currentIntakeError || !currentIntake) throw currentIntakeError ?? new Error("Intake not found.");
       const snapshot = currentIntake.source_snapshot && typeof currentIntake.source_snapshot === "object" && !Array.isArray(currentIntake.source_snapshot)
         ? currentIntake.source_snapshot as Record<string, unknown> : {};
+      const needsWorkabilityFollowUp = NATURAL_SAFETY_TARGETS.has(payload.informationKey)
+        && selectedOptionIds(payload.rawValue).some((id) => id === "bigger_problem" || id === "not_sure");
+      if (needsWorkabilityFollowUp) {
+        const nextTarget = { key: "safety_followup_workability", decisionArea: "safety", requiredSpecificity: "brief", sensitivity: "minimize", reason: "A practical follow-up is needed before Future You assumes that an action is workable." };
+        const { error: followUpError } = await context.admin.from("intake_instances").update({
+          status: "collecting", next_information_target: nextTarget,
+          source_snapshot: { ...snapshot, safety_followup_required: true },
+        }).eq("id", currentIntake.id).eq("user_id", context.user.id);
+        if (followUpError) throw followUpError;
+        result.status = "collecting"; result.next_target = nextTarget;
+      }
       const entryKey = typeof snapshot.selected_entry_key === "string" ? snapshot.selected_entry_key : "";
       const umbrella = umbrellaEntry(entryKey);
       if (umbrella?.initialKey === payload.informationKey) {
@@ -1022,7 +1043,7 @@ Deno.serve(async (req): Promise<Response> => {
         if (routeUpdateError) throw routeUpdateError;
         result.status = "collecting"; result.next_target = firstRequirement.target;
       }
-      if (result?.status === "collecting") {
+      if (result?.status === "collecting" && !needsWorkabilityFollowUp) {
         const [intakeResult, goalResult, factsResult, requirementsResult] = await Promise.all([
           context.admin.from("intake_instances").select("id, goal_id").eq("id", payload.intakeInstanceId).eq("user_id", context.user.id).maybeSingle(),
           context.admin.from("intake_instances").select("goals!inner(goal_text)").eq("id", payload.intakeInstanceId).eq("user_id", context.user.id).maybeSingle(),

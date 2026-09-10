@@ -74,6 +74,12 @@
           <input id="guided-update-note" placeholder="What happened?" />
           <button id="guided-save-update" type="button">Save update</button>
         </div>
+        <div id="guided-week-test" class="hidden">
+          <h3>Run a test week against this real plan</h3>
+          <p class="subtle">This saves five dated daily updates against the action plan you just generated. Then move into the weekly conversation to see whether the assessment and revised plan make sense.</p>
+          <button id="guided-run-week" type="button">Run mixed test week</button>
+          <article id="guided-week-timeline" class="plan-document hidden"></article>
+        </div>
         <div id="guided-weekly" class="hidden">
           <h3>Weekly review</h3>
           <p id="guided-weekly-status" class="status"></p>
@@ -87,6 +93,13 @@
             <button id="guided-weekly-submit" type="button">Continue weekly review</button>
           </div>
           <button id="guided-weekly-complete" class="secondary hidden" type="button">Finish weekly review</button>
+        </div>
+        <div id="guided-assessment" class="hidden">
+          <h3>See the weekly result</h3>
+          <button id="guided-derive-assessment" type="button">Show AI assessment draft</button>
+          <button id="guided-apply-assessment" class="secondary hidden" type="button">Apply assessment to this test</button>
+          <button id="guided-derive-revision" class="secondary hidden" type="button">Show revised action-plan draft</button>
+          <button id="guided-apply-revision" class="secondary hidden" type="button">Apply revised action plan to this test</button>
         </div>
         <pre id="guided-draft" class="status draft hidden"></pre>
         <article id="plan-document" class="plan-document hidden"></article>
@@ -157,6 +170,6 @@
       <h2>Test result</h2>
       <pre id="result" class="status">Sign in, then run a protected operation.</pre>
     </section>
-    <script type="module" src="./app.js?v=week-test-timeline-v1"></script>
+    <script type="module" src="./app.js?v=full-cycle-test-v1"></script>
   </body>
 </html>

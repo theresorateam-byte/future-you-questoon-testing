@@ -23,6 +23,22 @@ function naturalSafetyProbe(key: string) {
   };
 }
 
+function workabilityFollowUp(key: string) {
+  if (key !== "safety_followup_workability") return null;
+  return {
+    informationKey: key,
+    question: "What would make this feel more workable right now?",
+    control: "single_select",
+    options: [
+      { id: "make_smaller", label: "Make the change smaller" },
+      { id: "get_support", label: "Get support first" },
+      { id: "wait_for_time", label: "Wait for a better time" },
+      { id: "not_sure", label: "I am not sure yet" },
+    ],
+    whyThisMatters: "This helps Future You choose a realistic next step without making assumptions about what is possible right now.",
+  };
+}
+
 const schema = { type: "object", additionalProperties: false, required: ["informationKey", "question", "control", "options", "whyThisMatters"], properties: {
   informationKey: { type: "string" }, question: { type: "string", minLength: 6, maxLength: 240 },
   control: { type: "string", enum: ["single_select", "multi_select", "text", "number", "date", "time"] },
@@ -35,6 +51,8 @@ export async function deriveIntakeQuestion(input: { goalText: string; target: Va
   const keyName = String(input.target.key ?? "");
   const naturalProbe = naturalSafetyProbe(keyName);
   if (naturalProbe) return { question: naturalProbe, usage: null };
+  const followUp = workabilityFollowUp(keyName);
+  if (followUp) return { question: followUp, usage: null };
   const key = Deno.env.get("OPENAI_API_KEY");
   if (!key) throw new Error("AI question wording is not configured.");
   const prepared = { goal: input.goalText.slice(0, 1000), currentInformationKey: String(input.target.key ?? ""), target: input.target, priorAnswers: input.facts.slice(0, 40).map((fact) => ({ key: String(fact.fact_key ?? ""), answer: fact.fact_value })) };
