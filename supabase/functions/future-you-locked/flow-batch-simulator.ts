@@ -1,6 +1,7 @@
 import { deriveIntakeQuestion } from "./intake-question-deriver.ts";
 import { deriveNextIntakeTarget } from "./intake-turn-deriver.ts";
 import { deriveInitialPlan } from "./plan-deriver.ts";
+import { deriveSourceHandoff } from "./source-deriver.ts";
 import { buildVisibleUpdateChoices, currentTodayStep } from "./update-contract.ts";
 import { requirementsForTopic } from "./topic-requirements.ts";
 import { umbrellaEntry, umbrellaQuestionForTarget, routeUmbrellaAnswer } from "./umbrella-routing.ts";
@@ -34,19 +35,6 @@ function syntheticAnswer(question: Record<string, unknown>, caseNumber: number) 
   return { selectedOptionIds: [], answer: "I need a small change that fits around my current responsibilities." };
 }
 
-function sourceSnapshot(goal: string, facts: Record<string, unknown>[]) {
-  const factKeys = facts.map((fact) => String(fact.fact_key));
-  const cited = (value: string) => ({ value, factKeys });
-  return {
-    normalizedGoal: cited(goal), safety: cited("No immediate safety concern was supplied in this synthetic case."),
-    realism: cited("Start with a small step that fits the stated responsibilities."), capacity: cited("Use a limited, realistic amount of time."),
-    initialMode: "tiny_start", milestone: cited("Complete one small, observable step."), guardrails: cited("Do not assume time, agreement, or support that was not stated."),
-    entryGate: "active", goalBucket: "rhythm", goalDomain: cited("Synthetic test context"), routeBinding: cited("Locked test route"),
-    goalGap: cited("The test case needs a workable first step."), l3InitialState: { value: "Not assessed in a simulation.", factKeys, confidence: "low" },
-    firstTodayStep: cited("Take the smallest realistic next step."), prepareAction: null, successMarkers: cited("The first step is completed or honestly updated."),
-  };
-}
-
 function finding(transcript: Record<string, unknown>[]) {
   const questions = transcript.map((turn) => String(turn.question ?? "").toLowerCase());
   const repeated = questions.some((question, index) => questions.indexOf(question) !== index);
@@ -68,7 +56,7 @@ export async function simulateFlowBatch(entryKey: string, caseCount: number, saf
     const goal = goals[caseNumber % goals.length];
     const transcript: Record<string, unknown>[] = [];
     let internalTopic = entryKey;
-    const facts: Record<string, unknown>[] = [];
+    const facts: Record<string, unknown>[] = [{ fact_key: "simulated_goal", fact_value: goal, status: "confirmed", stability: "current", provenance: { source: "simulation" } }];
     if (umbrella) {
       const routeQuestion = umbrellaQuestionForTarget(umbrella.initialKey)!;
       const routeOption = caseNumber % 3 === 1 ? umbrella.options[1] : umbrella.options[0];
@@ -89,10 +77,18 @@ export async function simulateFlowBatch(entryKey: string, caseCount: number, saf
     }
     let plan: Record<string, unknown> | null = null;
     let planError: string | null = null;
-    try { plan = (await deriveInitialPlan(sourceSnapshot(goal, facts), safetyIdentifier)).plan; } catch (error) { planError = error instanceof Error ? error.message : "Plan derivation failed."; }
+    let sourceError: string | null = null;
+    try {
+      const source = await deriveSourceHandoff({ facts, unresolvedUncertainties: [], safetyIdentifier });
+      plan = (await deriveInitialPlan(source.sourceDraft, safetyIdentifier)).plan;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Simulation derivation failed.";
+      if (message.startsWith("AI Source")) sourceError = message;
+      else planError = message;
+    }
     const todayStep = plan ? currentTodayStep(plan) : null;
     const updateChoices = plan ? buildVisibleUpdateChoices(plan) : [];
-    cases.push({ caseNumber: caseNumber + 1, selectedEntry: entryKey, goal, internalOwner: internalTopic, transcript, plan, planError, todayStep, updateChoices, findings: finding(transcript) });
+    cases.push({ caseNumber: caseNumber + 1, selectedEntry: entryKey, goal, internalOwner: internalTopic, transcript, plan, sourceError, planError, todayStep, updateChoices, findings: finding(transcript) });
   }
   return { cases, note: "This is an in-memory replay. Questions, sequencing, action-plan derivation, and update choices use Locked v1 code; no intake, plan, update, or user content was saved." };
 }
