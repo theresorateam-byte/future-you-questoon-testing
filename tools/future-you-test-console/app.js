@@ -61,6 +61,9 @@ const sandboxUpdateChoices = document.querySelector("#sandbox-update-choices");
 const sandboxUpdateReason = document.querySelector("#sandbox-update-reason");
 const sandboxUpdateNote = document.querySelector("#sandbox-update-note");
 const sandboxSaveUpdate = document.querySelector("#sandbox-save-update");
+const sandboxWeek = document.querySelector("#sandbox-week");
+const sandboxRunWeek = document.querySelector("#sandbox-run-week");
+const sandboxWeekTimeline = document.querySelector("#sandbox-week-timeline");
 const sandboxAssessment = document.querySelector("#sandbox-assessment");
 const sandboxDeriveAssessment = document.querySelector("#sandbox-derive-assessment");
 const sandboxApplyAssessment = document.querySelector("#sandbox-apply-assessment");
@@ -167,6 +170,11 @@ function assessmentHtml(assessment) {
   const recommendation = assessment.planRecommendation || {};
   return `<h2>Future You’s assessment</h2><h3>What the update shows</h3><p>${escapeHtml(text(assessment.summary) || text(assessment.evidenceSummary) || "The assessment is based only on this test’s recorded evidence.")}</p><h3>Suggested direction</h3><p><strong>${escapeHtml(String(recommendation.outcome || recommendation.adjustmentOutcome || "No change suggested").replaceAll("_", " "))}</strong></p><p>${escapeHtml(text(recommendation.rationale) || "Read the assessment details below before applying any change.")}</p><details><summary>Assessment details</summary><pre class=\"draft\">${escapeHtml(JSON.stringify(assessment, null, 2))}</pre></details>`;
 }
+function weekHtml(events, assessmentError) {
+  const rows = (events || []).map((event) => `<li><strong>Day ${event.day}:</strong> ${escapeHtml(event.choice)}${event.note ? ` — ${escapeHtml(event.note)}` : ""}</li>`).join("");
+  const end = assessmentError ? `<p class="error">The week was saved, but the AI assessment did not complete: ${escapeHtml(assessmentError)}</p>` : "<p class=\"plan-note\">The saved week was sent to the assessment step. Read the assessment below to judge whether its interpretation makes sense.</p>";
+  return `<h2>Test-week timeline</h2><p>This is real dated update evidence attached only to this separate test plan.</p><ol>${rows}</ol>${end}`;
+}
 function batchHtml(cases) {
   return `<h2>Automatic example</h2>${cases.map((item) => `<section><h3>${escapeHtml(item.goal)}</h3><p><strong>Internal owner:</strong> ${escapeHtml(item.internalOwner)}</p><h3>Conversation transcript</h3>${(item.transcript || []).map((turn) => `<div class="plan-document"><p><strong>Future You:</strong> ${escapeHtml(turn.question)}</p><p><strong>Simulated user ${turn.control?.includes("select") ? "taps" : "answers"}:</strong> ${escapeHtml(turn.answer?.answer || "")}</p><p class="plan-note">${escapeHtml(turn.whyThisMatters || "")}</p></div>`).join("")}<h3>Action plan draft</h3>${item.plan ? planHtml(item.plan, "Action plan") : `<p class="error">${escapeHtml(item.sourceError ? `Source handoff failed: ${item.sourceError}` : item.planError || "No plan draft was created.")}</p>`}<h3>Progress example</h3>${listHtml((item.progressUpdates || []).map((update) => `${update.selectedChoice?.label || update.normalizedState} — ${update.optionalNote}`))}${item.weeklyQuestion ? `<h3>Weekly review question</h3><p>${escapeHtml(item.weeklyQuestion.question)}</p>` : ""}${item.assessment ? `<h3>Future You’s proposed direction</h3><p>${escapeHtml(item.assessment.planRecommendation?.outcome || "No plan change proposed")}: ${escapeHtml(item.assessment.planRecommendation?.rationale || "")}</p>` : `<p class="error">${escapeHtml(item.progressError || "Progress assessment was not available.")}</p>`}<h3>What to review</h3>${listHtml(item.findings)}</section>`).join("")}`;
 }
@@ -251,6 +259,7 @@ function renderSandbox() {
   if (!sandbox?.plan || !sandbox?.todayStep) return;
   showPlan(sandboxPlanDocument, sandbox.plan, "Current action plan");
   sandboxUpdate.classList.remove("hidden");
+  sandboxWeek.classList.remove("hidden");
   sandboxTodayStep.textContent = `Today’s Step: ${sandbox.todayStep.action}\nSmallest version: ${sandbox.todayStep.minimumVersion}`;
   sandboxUpdateChoices.innerHTML = "";
   for (const choice of sandbox.updateChoices || []) {
@@ -264,6 +273,7 @@ function renderSandbox() {
   sandboxDeriveRevision.classList.toggle("hidden", !sandbox.assessmentId);
   sandboxApplyRevision.classList.toggle("hidden", !sandbox.revisionDraft);
   if (sandbox.assessmentDraft) { sandboxAssessmentDocument.innerHTML = assessmentHtml(sandbox.assessmentDraft); sandboxAssessmentDocument.classList.remove("hidden"); }
+  if (sandbox.weekEvents) { sandboxWeekTimeline.innerHTML = weekHtml(sandbox.weekEvents, sandbox.weekAssessmentError); sandboxWeekTimeline.classList.remove("hidden"); }
 }
 
 async function openSandboxGoal(goalId) {
@@ -473,6 +483,37 @@ sandboxSaveUpdate.addEventListener("click", async () => {
     show(result, "Test update saved. You can now ask Future You to assess the recorded evidence.");
   } catch (error) { show(result, error instanceof Error ? error.message : "Unable to save test update.", true); }
   finally { sandboxSaveUpdate.disabled = false; }
+});
+
+sandboxRunWeek.addEventListener("click", async () => {
+  if (!sandbox?.goalId) return;
+  sandboxRunWeek.disabled = true;
+  const pattern = [
+    { day: 1, state: "completed", reason: null, note: "Started the chosen task for ten minutes." },
+    { day: 2, state: "partly_completed", reason: "time", note: "Did the smaller version because the day was busy." },
+    { day: 3, state: "not_today", reason: "capacity", note: "Did not have the energy for it today." },
+    { day: 5, state: "completed", reason: null, note: "Completed the planned ten-minute start." },
+    { day: 7, state: "partly_completed", reason: "capacity", note: "Opened the task but stopped after the minimum version." },
+  ];
+  const events = [];
+  try {
+    for (const item of pattern) {
+      const choice = (sandbox.updateChoices || []).find((option) => option.normalizedState === item.state);
+      if (!choice) throw new Error(`This test plan has no ${item.state.replaceAll("_", " ")} update choice.`);
+      const occurredAt = new Date(Date.now() - (7 - item.day) * 24 * 60 * 60 * 1000).toISOString();
+      const data = await callFutureYou({ operation: "record_progress_update", goalId: sandbox.goalId, clientUpdateId: crypto.randomUUID(), expectedLiveRevision: sandbox.liveRevision, selectedChoiceId: choice.id, reasonCategory: item.reason, reasonCode: item.state, variables: [], optionalNote: item.note, occurredAt });
+      sandbox.lastProgressUpdateId = data.result?.progress_update_id;
+      events.push({ day: item.day, choice: choice.label, note: item.note });
+    }
+    sandbox.weekEvents = events; sandbox.weekAssessmentError = null;
+    const assessment = await callFutureYou({ operation: "derive_progression_assessment", goalId: sandbox.goalId });
+    sandbox.assessmentDraft = assessment.assessmentDraft; sandbox.l3Revision = assessment.l3Revision;
+    renderSandbox();
+    show(result, "The five-day test week was saved and assessed. Read the timeline and Future You assessment together; this is the point where we judge whether the logic makes sense.");
+  } catch (error) {
+    sandbox.weekEvents = events; sandbox.weekAssessmentError = error instanceof Error ? error.message : "Unknown assessment error"; renderSandbox();
+    show(result, sandbox.weekEvents.length ? "The week was partly saved, but the assessment needs attention. The timeline shows exactly how far it got." : sandbox.weekAssessmentError, true);
+  } finally { sandboxRunWeek.disabled = false; }
 });
 
 sandboxDeriveAssessment.addEventListener("click", async () => {

@@ -110,6 +110,12 @@
         <input id="sandbox-update-note" placeholder="What happened?" />
         <button id="sandbox-save-update" type="button">Save test update</button>
       </div>
+      <div id="sandbox-week" class="hidden">
+        <h3>Test a week, not one button</h3>
+        <p class="subtle">This runs five dated daily updates against this exact test plan: a mix of completed steps, smaller starts, and days that did not happen. It then asks Future You to assess the whole pattern. No intake is required.</p>
+        <button id="sandbox-run-week" type="button">Run a mixed test week</button>
+        <article id="sandbox-week-timeline" class="plan-document hidden"></article>
+      </div>
       <div id="sandbox-assessment" class="hidden">
         <h3>See how Future You responds to the update</h3>
         <p class="subtle">After an update is saved, generate the assessment draft. You can read it before applying it. Applying it updates the test’s Level 3 state only; it does not rewrite the plan yet.</p>
@@ -151,6 +157,6 @@
       <h2>Test result</h2>
       <pre id="result" class="status">Sign in, then run a protected operation.</pre>
     </section>
-    <script type="module" src="./app.js?v=independent-update-test-v2"></script>
+    <script type="module" src="./app.js?v=week-test-timeline-v1"></script>
   </body>
 </html>
