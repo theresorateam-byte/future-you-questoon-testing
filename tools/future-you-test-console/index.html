@@ -18,6 +18,9 @@
       .status { border-left: 4px solid #70e1bf; padding: 10px 12px; background: #102a29; white-space: pre-wrap; }
       .error { border-color: #ff8f8f; background: #381e27; } .hidden { display: none; }
       .guided-answer { min-height: 110px; font-family: inherit; } .draft { max-height: 520px; overflow: auto; }
+      .plan-document { background:#0d1320; border:1px solid #415373; border-radius:10px; padding:18px; margin-top:16px; line-height:1.55; }
+      .plan-document h3 { margin:18px 0 6px; } .plan-document h3:first-child { margin-top:0; }
+      .plan-document ul { margin:6px 0; padding-left:22px; } .plan-document .plan-note { color:#b7c2dc; }
       .topic-picker { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:8px; margin:8px 0 16px; }
       .topic-picker button { margin:0; text-align:left; background:#20314e; color:#edf2ff; } .topic-picker button.selected { outline:2px solid #70e1bf; background:#17483d; }
       .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; } @media (max-width: 600px) { .row { grid-template-columns: 1fr; } }
@@ -86,11 +89,39 @@
           <button id="guided-weekly-complete" class="secondary hidden" type="button">Finish weekly review</button>
         </div>
         <pre id="guided-draft" class="status draft hidden"></pre>
+        <article id="plan-document" class="plan-document hidden"></article>
       </div>
     </section>
 
+    <section id="update-sandbox">
+      <h2>3. Open an action plan and test updates</h2>
+      <p class="subtle">Open an approved plan already in your tester account. This skips intake so you can inspect the plan in plain language and immediately test the daily-update flow.</p>
+      <button id="load-active-plans" type="button">Find approved test plans</button>
+      <div id="active-plan-list" class="topic-picker hidden"></div>
+      <article id="sandbox-plan-document" class="plan-document hidden"></article>
+      <div id="sandbox-update" class="hidden">
+        <h3>Try a daily update</h3>
+        <p id="sandbox-today-step" class="status"></p>
+        <div id="sandbox-update-choices" class="topic-picker"></div>
+        <label for="sandbox-update-reason">If it was not completed, what got in the way?</label>
+        <select id="sandbox-update-reason"><option value="">Not needed for completed</option><option value="time">Time</option><option value="capacity">Capacity</option><option value="access">Access</option><option value="emotion">Emotion</option><option value="external_difficulty">External difficulty</option></select>
+        <label for="sandbox-update-note">Short note</label>
+        <input id="sandbox-update-note" placeholder="What happened?" />
+        <button id="sandbox-save-update" type="button">Save test update</button>
+      </div>
+    </section>
+
+    <section id="batch-lab">
+      <h2>4. Synthetic batch test</h2>
+      <p class="subtle">Create fictional test cases and an AI quality report. This does not use or save real user content, messages, journals, or test-account answers.</p>
+      <label for="batch-size">Number of fictional cases</label>
+      <select id="batch-size"><option value="3">3 cases</option><option value="6" selected>6 cases</option><option value="10">10 cases</option></select>
+      <button id="run-batch" type="button">Create and analyze test batch</button>
+      <article id="batch-report" class="plan-document hidden"></article>
+    </section>
+
     <section>
-      <h2>3. Technical console</h2>
+      <h2>5. Technical console</h2>
       <p class="subtle">Start with <code>contract_status</code>. The response area shows the exact server result so a tester can follow the staged runbook without directly accessing database tables.</p>
       <label for="preset">Quick start</label>
       <select id="preset">
@@ -110,6 +141,6 @@
       <h2>Result</h2>
       <pre id="result" class="status">Sign in, then run a protected operation.</pre>
     </section>
-    <script type="module" src="./app.js?v=umbrella-routing-v1"></script>
+    <script type="module" src="./app.js?v=test-lab-v2"></script>
   </body>
 </html>

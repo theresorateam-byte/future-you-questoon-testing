@@ -17,6 +17,7 @@ import { deriveIntakeQuestion } from "./intake-question-deriver.ts";
 import { deriveNextIntakeTarget } from "./intake-turn-deriver.ts";
 import { deriveWeeklyCheckinQuestion, WEEKLY_CHECKIN_KEYS } from "./weekly-checkin-deriver.ts";
 import { UMBRELLA_ENTRIES, umbrellaEntry, umbrellaQuestionForTarget, routeUmbrellaAnswer } from "./umbrella-routing.ts";
+import { deriveBatchTestReport } from "./batch-lab.ts";
 
 /**
  * Locked Future You service, kept separate from the legacy future-you-engine.
@@ -494,6 +495,24 @@ Deno.serve(async (req): Promise<Response> => {
       if (queryError) throw queryError;
       if (!originalResult.data || !liveResult.data) return json({ error: "No Locked v1 plan was found for this goal." }, 404);
       return json({ engine: "future-you-locked-v1", originalPlan: originalResult.data, livePlan: liveResult.data, l3State: l3Result.data ?? null });
+    }
+
+    if (payload.operation === "test_lab_active_goals") {
+      const [goalsResult, livePlansResult] = await Promise.all([
+        context.admin.from("goals").select("id, goal_text").eq("user_id", context.user.id).order("created_at", { ascending: false }).limit(50),
+        context.admin.from("live_action_plans").select("goal_id, revision, updated_at").eq("user_id", context.user.id).order("updated_at", { ascending: false }).limit(50),
+      ]);
+      const queryError = [goalsResult.error, livePlansResult.error].find(Boolean);
+      if (queryError) throw queryError;
+      const goalText = new Map((goalsResult.data ?? []).map((goal) => [goal.id, goal.goal_text]));
+      return json({ engine: "future-you-locked-v1", activeGoals: (livePlansResult.data ?? []).map((plan) => ({ goalId: plan.goal_id, goalText: goalText.get(plan.goal_id) ?? "Untitled test plan", liveRevision: plan.revision, updatedAt: plan.updated_at })) });
+    }
+
+    if (payload.operation === "batch_test_report") {
+      const requestedSize = Number(payload.batchSize);
+      const batchSize = Number.isInteger(requestedSize) && requestedSize >= 3 && requestedSize <= 10 ? requestedSize : 6;
+      const result = await deriveBatchTestReport(batchSize, await sha256Json(context.user.id));
+      return json({ engine: "future-you-locked-v1", batch: result.report, note: "Synthetic batch only. Nothing was saved and no real user content was used." });
     }
 
     if (payload.operation === "today_step" || payload.operation === "progress_update_options") {

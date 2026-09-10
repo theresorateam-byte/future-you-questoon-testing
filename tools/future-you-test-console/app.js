@@ -33,6 +33,7 @@ const guidedFreeze = document.querySelector("#guided-freeze");
 const guidedPlan = document.querySelector("#guided-plan");
 const guidedApprove = document.querySelector("#guided-approve");
 const guidedDraft = document.querySelector("#guided-draft");
+const planDocument = document.querySelector("#plan-document");
 const guidedUpdate = document.querySelector("#guided-update");
 const guidedTodayStep = document.querySelector("#guided-today-step");
 const guidedUpdateChoices = document.querySelector("#guided-update-choices");
@@ -50,7 +51,20 @@ const guidedWeeklyAnswer = document.querySelector("#guided-weekly-answer");
 const guidedWeeklySubmit = document.querySelector("#guided-weekly-submit");
 const guidedWeeklyComplete = document.querySelector("#guided-weekly-complete");
 const topicPicker = document.querySelector("#topic-picker");
+const loadActivePlans = document.querySelector("#load-active-plans");
+const activePlanList = document.querySelector("#active-plan-list");
+const sandboxPlanDocument = document.querySelector("#sandbox-plan-document");
+const sandboxUpdate = document.querySelector("#sandbox-update");
+const sandboxTodayStep = document.querySelector("#sandbox-today-step");
+const sandboxUpdateChoices = document.querySelector("#sandbox-update-choices");
+const sandboxUpdateReason = document.querySelector("#sandbox-update-reason");
+const sandboxUpdateNote = document.querySelector("#sandbox-update-note");
+const sandboxSaveUpdate = document.querySelector("#sandbox-save-update");
+const batchSize = document.querySelector("#batch-size");
+const runBatch = document.querySelector("#run-batch");
+const batchReport = document.querySelector("#batch-report");
 let guided = JSON.parse(localStorage.getItem("future-you-guided-test") || "null");
+let sandbox = null;
 
 const topics = [
   ["build_stronger_relationships", "Build stronger relationships"],
@@ -118,6 +132,30 @@ const questionCopy = (target) => {
 };
 function saveGuided() { localStorage.setItem("future-you-guided-test", JSON.stringify(guided)); }
 function draft(value) { guidedDraft.textContent = JSON.stringify(value, null, 2); guidedDraft.classList.remove("hidden"); }
+function text(value) { return typeof value === "string" && value.trim() ? value.trim() : null; }
+function itemText(item) {
+  if (text(item)) return item.trim();
+  if (!item || typeof item !== "object") return null;
+  const record = item;
+  return [record.action, record.title, record.label, record.description, record.minimumVersion, record.successMarker].filter(text).join(" — ") || null;
+}
+function listHtml(items) {
+  const values = (Array.isArray(items) ? items : []).map(itemText).filter(Boolean);
+  return values.length ? `<ul>${values.map((value) => `<li>${escapeHtml(value)}</li>`).join("")}</ul>` : "<p class=\"plan-note\">Not specified yet.</p>";
+}
+function escapeHtml(value) { const element = document.createElement("span"); element.textContent = String(value); return element.innerHTML; }
+function planHtml(plan, title = "Action plan") {
+  if (!plan || typeof plan !== "object") return "<p class=\"plan-note\">No readable plan is available yet.</p>";
+  const goal = text(plan.goal?.intendedResult) || "Your selected direction";
+  const first = plan.firstTodayStep || plan.prepareAction;
+  const step = first && typeof first === "object" ? `<h3>Start here</h3><p><strong>${escapeHtml(itemText(first) || "A first step will appear here.")}</strong></p>` : "";
+  return `<h2>${escapeHtml(title)}</h2><h3>What you’re working on</h3><p>${escapeHtml(goal)}</p><h3>This week’s focus</h3>${listHtml(plan.remainingPlan)}${step}<h3>What progress looks like</h3>${listHtml(plan.successMarkers)}<h3>Important guardrails</h3>${listHtml(plan.guardrails)}<p class=\"plan-note\">Starting mode: ${escapeHtml(String(plan.mode || "not set").replaceAll("_", " "))}. This view translates the stored plan; it does not change it.</p>`;
+}
+function showPlan(target, plan, title) { target.innerHTML = planHtml(plan, title); target.classList.remove("hidden"); }
+function batchHtml(report) {
+  const cases = Array.isArray(report?.cases) ? report.cases : [];
+  return `<h2>Synthetic batch report</h2><p>${escapeHtml(report?.summary || "No summary returned.")}</p><h3>Readiness: ${escapeHtml(String(report?.productionReadiness?.score ?? "—"))}/100</h3><p>${escapeHtml(report?.productionReadiness?.reason || "")}</p><h3>Cases</h3>${cases.map((item) => `<section><strong>${escapeHtml(item.entryKey)} — ${escapeHtml(item.verdict)}</strong><p>${escapeHtml(item.syntheticSituation)}</p><p><strong>First-question check:</strong> ${escapeHtml(item.firstQuestionCheck)}</p><p><strong>Expected internal owner:</strong> ${escapeHtml(item.expectedInternalOwner || "Direct entry")}</p><p><strong>Question-order checks:</strong></p>${listHtml(item.questionOrderChecks)}<p><strong>Plan checks:</strong></p>${listHtml(item.planChecks)}</section>`).join("")}<h3>Cross-case findings</h3>${listHtml(report?.crossCaseFindings)}<h3>Recommended next changes</h3>${listHtml(report?.recommendedChanges)}`;
+}
 function renderGuided() {
   if (!guided?.intakeId) return;
   guidedFlow.classList.remove("hidden");
@@ -193,6 +231,30 @@ function renderGuided() {
 async function loadUpdateFlow() {
   const data = await callFutureYou({ operation: "progress_update_options", goalId: guided.goalId });
   guided.liveRevision = data.liveRevision; guided.todayStep = data.todayStep; guided.updateChoices = data.visibleChoices; saveGuided(); renderGuided();
+}
+
+function renderSandbox() {
+  if (!sandbox?.plan || !sandbox?.todayStep) return;
+  showPlan(sandboxPlanDocument, sandbox.plan, "Current action plan");
+  sandboxUpdate.classList.remove("hidden");
+  sandboxTodayStep.textContent = `Today’s Step: ${sandbox.todayStep.action}\nSmallest version: ${sandbox.todayStep.minimumVersion}`;
+  sandboxUpdateChoices.innerHTML = "";
+  for (const choice of sandbox.updateChoices || []) {
+    const button = document.createElement("button"); button.type = "button"; button.textContent = choice.label;
+    button.classList.toggle("selected", sandbox.selectedChoiceId === choice.id);
+    button.addEventListener("click", () => { sandbox.selectedChoiceId = choice.id; renderSandbox(); });
+    sandboxUpdateChoices.append(button);
+  }
+}
+
+async function openSandboxGoal(goalId) {
+  const [state, updates] = await Promise.all([
+    callFutureYou({ operation: "plan_state", goalId }),
+    callFutureYou({ operation: "progress_update_options", goalId }),
+  ]);
+  sandbox = { goalId, plan: state.livePlan.plan, liveRevision: updates.liveRevision, todayStep: updates.todayStep, updateChoices: updates.visibleChoices };
+  renderSandbox();
+  show(result, "Approved plan opened. You can now test the update flow directly.");
 }
 
 async function syncGuidedIntake() {
@@ -293,12 +355,12 @@ guidedFreeze.addEventListener("click", async () => {
 });
 guidedPlan.addEventListener("click", async () => {
   guidedPlan.disabled = true;
-  try { const data = await callFutureYou({ operation: "derive_initial_plan", intakeInstanceId: guided.intakeId }); guided.planDraft = data.planDraft; saveGuided(); draft({ stage: "AI action-plan draft — review before approving", draft: data.planDraft }); renderGuided(); }
+  try { const data = await callFutureYou({ operation: "derive_initial_plan", intakeInstanceId: guided.intakeId }); guided.planDraft = data.planDraft; saveGuided(); draft({ stage: "AI action-plan draft — review before approving", draft: data.planDraft }); showPlan(planDocument, data.planDraft, "Action plan draft"); renderGuided(); }
   catch (error) { show(result, error instanceof Error ? error.message : "Unable to create action-plan draft.", true); } finally { guidedPlan.disabled = false; }
 });
 guidedApprove.addEventListener("click", async () => {
   guidedApprove.disabled = true;
-  try { const data = await callFutureYou({ operation: "approve_initial_plan", intakeInstanceId: guided.intakeId, planDraft: guided.planDraft }); guided.planApproved = true; guided.weeklyState = await callFutureYou({ operation: "weekly_checkin_state", goalId: guided.goalId }); saveGuided(); draft({ stage: "Action plan saved — this is the plan a user would see", result: data, plan: guided.planDraft }); await loadUpdateFlow(); }
+  try { const data = await callFutureYou({ operation: "approve_initial_plan", intakeInstanceId: guided.intakeId, planDraft: guided.planDraft }); guided.planApproved = true; guided.weeklyState = await callFutureYou({ operation: "weekly_checkin_state", goalId: guided.goalId }); saveGuided(); draft({ stage: "Action plan saved — this is the plan a user would see", result: data, plan: guided.planDraft }); showPlan(planDocument, guided.planDraft, "Your action plan"); await loadUpdateFlow(); }
   catch (error) { show(result, error instanceof Error ? error.message : "Unable to approve action plan.", true); } finally { guidedApprove.disabled = false; }
 });
 guidedSaveUpdate.addEventListener("click", async () => {
@@ -352,6 +414,45 @@ guidedWeeklyComplete.addEventListener("click", async () => {
     draft({ stage: "Weekly review complete", result: data, next: "These answers are canonical evidence. The assessment and future-only plan revision can use them; the Original Plan remains unchanged." });
   } catch (error) { show(result, error instanceof Error ? error.message : "Unable to finish this weekly review.", true); }
   finally { guidedWeeklyComplete.disabled = false; }
+});
+
+loadActivePlans.addEventListener("click", async () => {
+  loadActivePlans.disabled = true;
+  try {
+    const data = await callFutureYou({ operation: "test_lab_active_goals" });
+    activePlanList.innerHTML = "";
+    for (const goal of data.activeGoals || []) {
+      const button = document.createElement("button"); button.type = "button";
+      button.textContent = `${goal.goalText} (revision ${goal.liveRevision})`;
+      button.addEventListener("click", async () => { button.disabled = true; try { await openSandboxGoal(goal.goalId); } catch (error) { show(result, error instanceof Error ? error.message : "Unable to open this plan.", true); } finally { button.disabled = false; } });
+      activePlanList.append(button);
+    }
+    activePlanList.classList.remove("hidden");
+    if ((data.activeGoals || []).length === 0) activePlanList.textContent = "No approved test plans yet. Finish one guided intake once, then it will appear here for direct update testing.";
+  } catch (error) { show(result, error instanceof Error ? error.message : "Unable to find approved plans.", true); }
+  finally { loadActivePlans.disabled = false; }
+});
+
+sandboxSaveUpdate.addEventListener("click", async () => {
+  if (!sandbox?.selectedChoiceId) return;
+  sandboxSaveUpdate.disabled = true;
+  try {
+    const choice = (sandbox.updateChoices || []).find((item) => item.id === sandbox.selectedChoiceId);
+    const data = await callFutureYou({ operation: "record_progress_update", goalId: sandbox.goalId, clientUpdateId: crypto.randomUUID(), expectedLiveRevision: sandbox.liveRevision, selectedChoiceId: sandbox.selectedChoiceId, reasonCategory: choice?.normalizedState === "completed" ? null : sandboxUpdateReason.value, reasonCode: sandboxUpdateNote.value.trim() || choice?.normalizedState || "completed", variables: [], optionalNote: sandboxUpdateNote.value.trim() || null });
+    show(result, `Test update saved. ${data.note || ""}`);
+    sandboxUpdateNote.value = ""; sandbox.selectedChoiceId = null;
+  } catch (error) { show(result, error instanceof Error ? error.message : "Unable to save test update.", true); }
+  finally { sandboxSaveUpdate.disabled = false; }
+});
+
+runBatch.addEventListener("click", async () => {
+  runBatch.disabled = true;
+  try {
+    const data = await callFutureYou({ operation: "batch_test_report", batchSize: Number(batchSize.value) });
+    batchReport.innerHTML = batchHtml(data.batch); batchReport.classList.remove("hidden");
+    show(result, data.note || "Synthetic batch report created.");
+  } catch (error) { show(result, error instanceof Error ? error.message : "Unable to create batch report.", true); }
+  finally { runBatch.disabled = false; }
 });
 
 document.querySelector("#copy").addEventListener("click", async () => {

@@ -15,6 +15,8 @@ export const LOCKED_OPERATIONS = [
   "derive_initial_plan",
   "approve_initial_plan",
   "plan_state",
+  "test_lab_active_goals",
+  "batch_test_report",
   "today_step",
   "progress_update_options",
   "record_progress_update",
