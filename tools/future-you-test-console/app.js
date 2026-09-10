@@ -117,7 +117,10 @@ async function callFutureYou(body) {
   });
   const text = await response.text();
   let data; try { data = JSON.parse(text); } catch { data = { error: text }; }
-  if (!response.ok) throw new Error(data.error || `Request failed (HTTP ${response.status}).`);
+  if (!response.ok) {
+    const detail = typeof data.code === "string" ? ` Test detail: ${data.code.replaceAll("_", " ")}.` : "";
+    throw new Error(`${data.error || `Request failed (HTTP ${response.status}).`}${detail}`);
+  }
   return data;
 }
 
