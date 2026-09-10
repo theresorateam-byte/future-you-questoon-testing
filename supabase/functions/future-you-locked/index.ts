@@ -135,7 +135,7 @@ const UPDATE_TEST_SOURCE = {
   engine_version: "future-you-locked-v1",
   test_fixture: true,
   selected_entry_key: "get_more_done",
-  selected_topic_key: "time_management",
+  selected_topic_key: "manage_my_time_better",
   normalizedGoal: { value: "Make a 10-minute start on one important task this week." },
   safety: { value: "The task is personally appropriate and can be paused if circumstances change." },
   realism: { value: "A short start fits better than a large catch-up session." },
@@ -557,7 +557,7 @@ Deno.serve(async (req): Promise<Response> => {
       }
       const fixture = started[0] as { goal_id: string; intake_instance_id: string };
       const { data: topic, error: topicError } = await context.admin.from("future_you_contract_versions")
-        .select("id").eq("contract_key", "time_management").eq("scope", "topic").eq("status", "locked").maybeSingle();
+        .select("id").eq("contract_key", "manage_my_time_better").eq("scope", "topic").eq("status", "locked").maybeSingle();
       if (topicError || !topic) return json({ error: "The update-test topic setup is unavailable.", code: "update_test_topic_unavailable", stage: "update_test_setup" }, 502);
       const [{ error: bindingError }, { error: intakeError }] = await Promise.all([
         context.admin.from("goal_contract_bindings").insert({ goal_id: fixture.goal_id, user_id: context.user.id, contract_version_id: topic.id, binding_role: "topic" }),
