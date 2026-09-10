@@ -61,6 +61,7 @@ const sandboxUpdateReason = document.querySelector("#sandbox-update-reason");
 const sandboxUpdateNote = document.querySelector("#sandbox-update-note");
 const sandboxSaveUpdate = document.querySelector("#sandbox-save-update");
 const batchSize = document.querySelector("#batch-size");
+const batchEntry = document.querySelector("#batch-entry");
 const runBatch = document.querySelector("#run-batch");
 const batchReport = document.querySelector("#batch-report");
 let guided = JSON.parse(localStorage.getItem("future-you-guided-test") || "null");
@@ -152,9 +153,8 @@ function planHtml(plan, title = "Action plan") {
   return `<h2>${escapeHtml(title)}</h2><h3>What you’re working on</h3><p>${escapeHtml(goal)}</p><h3>This week’s focus</h3>${listHtml(plan.remainingPlan)}${step}<h3>What progress looks like</h3>${listHtml(plan.successMarkers)}<h3>Important guardrails</h3>${listHtml(plan.guardrails)}<p class=\"plan-note\">Starting mode: ${escapeHtml(String(plan.mode || "not set").replaceAll("_", " "))}. This view translates the stored plan; it does not change it.</p>`;
 }
 function showPlan(target, plan, title) { target.innerHTML = planHtml(plan, title); target.classList.remove("hidden"); }
-function batchHtml(report) {
-  const cases = Array.isArray(report?.cases) ? report.cases : [];
-  return `<h2>Synthetic batch report</h2><p>${escapeHtml(report?.summary || "No summary returned.")}</p><h3>Readiness: ${escapeHtml(String(report?.productionReadiness?.score ?? "—"))}/100</h3><p>${escapeHtml(report?.productionReadiness?.reason || "")}</p><h3>Cases</h3>${cases.map((item) => `<section><strong>${escapeHtml(item.entryKey)} — ${escapeHtml(item.verdict)}</strong><p>${escapeHtml(item.syntheticSituation)}</p><p><strong>First-question check:</strong> ${escapeHtml(item.firstQuestionCheck)}</p><p><strong>Expected internal owner:</strong> ${escapeHtml(item.expectedInternalOwner || "Direct entry")}</p><p><strong>Question-order checks:</strong></p>${listHtml(item.questionOrderChecks)}<p><strong>Plan checks:</strong></p>${listHtml(item.planChecks)}</section>`).join("")}<h3>Cross-case findings</h3>${listHtml(report?.crossCaseFindings)}<h3>Recommended next changes</h3>${listHtml(report?.recommendedChanges)}`;
+function batchHtml(cases) {
+  return `<h2>Real-flow simulation</h2>${cases.map((item) => `<section><h3>Person ${escapeHtml(item.caseNumber)}: ${escapeHtml(item.goal)}</h3><p><strong>Internal owner:</strong> ${escapeHtml(item.internalOwner)}</p><h3>Conversation transcript</h3>${(item.transcript || []).map((turn) => `<div class="plan-document"><p><strong>Future You:</strong> ${escapeHtml(turn.question)}</p><p><strong>Simulated user ${turn.control?.includes("select") ? "taps" : "answers"}:</strong> ${escapeHtml(turn.answer?.answer || "")}</p><p class="plan-note">${escapeHtml(turn.whyThisMatters || "")}</p></div>`).join("")}<h3>Action plan draft</h3>${item.plan ? planHtml(item.plan, "Action plan") : `<p class="error">${escapeHtml(item.planError || "No plan draft was created.")}</p>`}<h3>Update flow</h3>${item.todayStep ? `<p><strong>Today’s Step:</strong> ${escapeHtml(item.todayStep.action)}<br />Smallest version: ${escapeHtml(item.todayStep.minimumVersion)}</p>${listHtml(item.updateChoices?.map((choice) => choice.label))}` : "<p class=\"plan-note\">No update choices are available because the plan draft did not pass.</p>"}<h3>What to review</h3>${listHtml(item.findings)}</section>`).join("")}`;
 }
 function renderGuided() {
   if (!guided?.intakeId) return;
@@ -448,9 +448,9 @@ sandboxSaveUpdate.addEventListener("click", async () => {
 runBatch.addEventListener("click", async () => {
   runBatch.disabled = true;
   try {
-    const data = await callFutureYou({ operation: "batch_test_report", batchSize: Number(batchSize.value) });
-    batchReport.innerHTML = batchHtml(data.batch); batchReport.classList.remove("hidden");
-    show(result, data.note || "Synthetic batch report created.");
+    const data = await callFutureYou({ operation: "simulate_flow_batch", entryKey: batchEntry.value, caseCount: Number(batchSize.value) });
+    batchReport.innerHTML = batchHtml(data.cases); batchReport.classList.remove("hidden");
+    show(result, data.note || "Real-flow simulation completed.");
   } catch (error) { show(result, error instanceof Error ? error.message : "Unable to create batch report.", true); }
   finally { runBatch.disabled = false; }
 });

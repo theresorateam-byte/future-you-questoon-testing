@@ -112,11 +112,13 @@
     </section>
 
     <section id="batch-lab">
-      <h2>4. Synthetic batch test</h2>
-      <p class="subtle">Create fictional test cases and an AI quality report. This does not use or save real user content, messages, journals, or test-account answers.</p>
-      <label for="batch-size">Number of fictional cases</label>
-      <select id="batch-size"><option value="3">3 cases</option><option value="6" selected>6 cases</option><option value="10">10 cases</option></select>
-      <button id="run-batch" type="button">Create and analyze test batch</button>
+      <h2>4. Real-flow batch simulator</h2>
+      <p class="subtle">Run fictional people through the same Locked v1 question wording, question sequencing, routing, action-plan draft, and update-choice logic. Nothing is saved. Each transcript shows every question and the simulated button choice.</p>
+      <label for="batch-entry">Start from this user choice</label>
+      <select id="batch-entry"><option value="set_better_boundaries">Set Better Boundaries</option><option value="get_more_done">Get More Done</option><option value="get_daily_life_in_order">Get Daily Life in Order</option><option value="build_stronger_relationships">Build Stronger Relationships</option><option value="communicate_better">Communicate Better</option><option value="become_more_confident">Become More Confident</option><option value="feel_more_like_myself">Feel More Like Myself</option></select>
+      <label for="batch-size">Number of fictional people</label>
+      <select id="batch-size"><option value="1" selected>1 person</option><option value="2">2 people</option><option value="3">3 people</option></select>
+      <button id="run-batch" type="button">Run flow simulation</button>
       <article id="batch-report" class="plan-document hidden"></article>
     </section>
 
@@ -141,6 +143,6 @@
       <h2>Result</h2>
       <pre id="result" class="status">Sign in, then run a protected operation.</pre>
     </section>
-    <script type="module" src="./app.js?v=test-lab-v2"></script>
+    <script type="module" src="./app.js?v=real-flow-batch-v1"></script>
   </body>
 </html>

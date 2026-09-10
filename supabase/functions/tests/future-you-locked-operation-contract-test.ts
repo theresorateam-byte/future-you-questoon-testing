@@ -6,7 +6,7 @@ Deno.test("Locked API operation contract contains every protected lifecycle boun
   for (const operation of [
     "derive_source_handoff", "freeze_source_handoff", "approve_initial_plan",
     "record_progress_update", "apply_progression_assessment", "revise_live_plan",
-    "test_lab_active_goals", "batch_test_report",
+    "test_lab_active_goals", "batch_test_report", "simulate_flow_batch",
   ]) assertEquals(LOCKED_OPERATIONS.includes(operation as typeof LOCKED_OPERATIONS[number]), true);
   assertStringIncludes(unknownOperationMessage(), "derive_source_handoff");
   assertStringIncludes(unknownOperationMessage(), "revise_live_plan");

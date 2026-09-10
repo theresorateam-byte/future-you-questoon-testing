@@ -18,6 +18,7 @@ import { deriveNextIntakeTarget } from "./intake-turn-deriver.ts";
 import { deriveWeeklyCheckinQuestion, WEEKLY_CHECKIN_KEYS } from "./weekly-checkin-deriver.ts";
 import { UMBRELLA_ENTRIES, umbrellaEntry, umbrellaQuestionForTarget, routeUmbrellaAnswer } from "./umbrella-routing.ts";
 import { deriveBatchTestReport } from "./batch-lab.ts";
+import { simulateFlowBatch } from "./flow-batch-simulator.ts";
 
 /**
  * Locked Future You service, kept separate from the legacy future-you-engine.
@@ -513,6 +514,14 @@ Deno.serve(async (req): Promise<Response> => {
       const batchSize = Number.isInteger(requestedSize) && requestedSize >= 3 && requestedSize <= 10 ? requestedSize : 6;
       const result = await deriveBatchTestReport(batchSize, await sha256Json(context.user.id));
       return json({ engine: "future-you-locked-v1", batch: result.report, note: "Synthetic batch only. Nothing was saved and no real user content was used." });
+    }
+
+    if (payload.operation === "simulate_flow_batch") {
+      const entryKey = typeof payload.entryKey === "string" ? payload.entryKey : "";
+      const requestedCount = Number(payload.caseCount);
+      const caseCount = Number.isInteger(requestedCount) && requestedCount >= 1 && requestedCount <= 3 ? requestedCount : 1;
+      const result = await simulateFlowBatch(entryKey, caseCount, await sha256Json(context.user.id));
+      return json({ engine: "future-you-locked-v1", ...result });
     }
 
     if (payload.operation === "today_step" || payload.operation === "progress_update_options") {
