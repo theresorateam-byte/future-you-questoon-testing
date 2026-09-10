@@ -2,6 +2,12 @@ type RecordValue = Record<string, unknown>;
 
 const REQUEST_TIMEOUT_MS = 25_000;
 
+/** A deliberately small error vocabulary that is safe to return to a tester.
+ * It never includes provider text, prompts, or a person's answers. */
+export class SafeDraftError extends Error {
+  constructor(public readonly code: string, message: string) { super(message); this.name = "SafeDraftError"; }
+}
+
 function outputText(raw: RecordValue): unknown {
   if (typeof raw.output_text === "string") return raw.output_text;
   const output = Array.isArray(raw.output) ? raw.output : [];
@@ -35,7 +41,7 @@ export async function requestOpenAiDraft(apiKey: string, body: RecordValue, labe
       signal: controller.signal,
     });
   } catch {
-    throw new Error(controller.signal.aborted ? `${label} timed out.` : `${label} failed.`);
+    throw new SafeDraftError(controller.signal.aborted ? "draft_timeout" : "draft_transport", controller.signal.aborted ? `${label} timed out.` : `${label} could not be reached.`);
   } finally {
     clearTimeout(timeout);
   }
@@ -43,19 +49,19 @@ export async function requestOpenAiDraft(apiKey: string, body: RecordValue, labe
   try {
     raw = await response.json();
   } catch {
-    throw new Error(`${label} failed.`);
+    throw new SafeDraftError("draft_response_unreadable", `${label} returned an unreadable response.`);
   }
-  if (!response.ok || !raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error(`${label} failed.`);
+  if (!response.ok || !raw || typeof raw !== "object" || Array.isArray(raw)) throw new SafeDraftError("draft_provider_rejected", `${label} failed.`);
   const result = raw as RecordValue;
-  if (typeof result.status === "string" && result.status !== "completed") throw new Error(`${label} did not complete.`);
+  if (typeof result.status === "string" && result.status !== "completed") throw new SafeDraftError("draft_incomplete", `${label} did not complete.`);
   const text = outputText(result);
-  if (typeof text !== "string" || text.trim().length === 0) throw new Error(`${label} returned no draft.`);
+  if (typeof text !== "string" || text.trim().length === 0) throw new SafeDraftError("draft_empty", `${label} returned no draft.`);
   let draft: unknown;
   try {
     draft = JSON.parse(text);
   } catch {
-    throw new Error(`${label} returned an invalid draft.`);
+    throw new SafeDraftError("draft_invalid_json", `${label} returned an invalid draft.`);
   }
-  if (!draft || typeof draft !== "object" || Array.isArray(draft)) throw new Error(`${label} returned an invalid draft.`);
+  if (!draft || typeof draft !== "object" || Array.isArray(draft)) throw new SafeDraftError("draft_invalid_shape", `${label} returned an invalid draft.`);
   return { draft: draft as RecordValue, usage: result.usage ?? null };
 }

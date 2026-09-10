@@ -93,10 +93,11 @@
       </div>
     </section>
 
-    <section id="update-sandbox" class="hidden">
-      <h2>3. Open an action plan and test updates</h2>
-      <p class="subtle">Open an approved plan already in your tester account. This skips intake so you can inspect the plan in plain language and immediately test the daily-update flow.</p>
-      <button id="load-active-plans" type="button">Find approved test plans</button>
+    <section id="update-sandbox">
+      <h2>3. Test updates directly</h2>
+      <p class="subtle">This starts a separate, ready-made test plan. You do not need to finish intake first. It uses the same protected update, assessment, and plan-revision logic as the product, while keeping the test clearly separate from your intake tests.</p>
+      <button id="create-update-scenario" type="button">Start a fresh update test</button>
+      <button id="load-active-plans" class="secondary" type="button">Open a previous test plan</button>
       <div id="active-plan-list" class="topic-picker hidden"></div>
       <article id="sandbox-plan-document" class="plan-document hidden"></article>
       <div id="sandbox-update" class="hidden">
@@ -109,10 +110,19 @@
         <input id="sandbox-update-note" placeholder="What happened?" />
         <button id="sandbox-save-update" type="button">Save test update</button>
       </div>
+      <div id="sandbox-assessment" class="hidden">
+        <h3>See how Future You responds to the update</h3>
+        <p class="subtle">After an update is saved, generate the assessment draft. You can read it before applying it. Applying it updates the test’s Level 3 state only; it does not rewrite the plan yet.</p>
+        <button id="sandbox-derive-assessment" type="button">Show AI assessment draft</button>
+        <button id="sandbox-apply-assessment" class="secondary hidden" type="button">Apply assessment to this test</button>
+        <button id="sandbox-derive-revision" class="secondary hidden" type="button">Show revised action-plan draft</button>
+        <button id="sandbox-apply-revision" class="secondary hidden" type="button">Apply revised action plan to this test</button>
+      </div>
+      <article id="sandbox-assessment-document" class="plan-document hidden"></article>
     </section>
 
-    <section id="batch-lab">
-      <h2>3. Run an automatic example</h2>
+    <section id="batch-lab" class="hidden" aria-hidden="true">
+      <h2>Automatic example</h2>
       <p class="subtle">See one fictional person move through the same question wording, question order, routing, action-plan draft, and update choices. Nothing is saved. You can review every question and selected response.</p>
       <label for="batch-entry">Start from this user choice</label>
       <select id="batch-entry"><option value="set_better_boundaries">Set Better Boundaries</option><option value="get_more_done">Get More Done</option><option value="get_daily_life_in_order">Get Daily Life in Order</option><option value="build_stronger_relationships">Build Stronger Relationships</option><option value="communicate_better">Communicate Better</option><option value="become_more_confident">Become More Confident</option><option value="feel_more_like_myself">Feel More Like Myself</option></select>
@@ -141,6 +151,6 @@
       <h2>Test result</h2>
       <pre id="result" class="status">Sign in, then run a protected operation.</pre>
     </section>
-    <script type="module" src="./app.js?v=simplified-test-lab-v2"></script>
+    <script type="module" src="./app.js?v=independent-update-test-v1"></script>
   </body>
 </html>

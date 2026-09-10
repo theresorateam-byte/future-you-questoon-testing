@@ -51,6 +51,7 @@ const guidedWeeklyAnswer = document.querySelector("#guided-weekly-answer");
 const guidedWeeklySubmit = document.querySelector("#guided-weekly-submit");
 const guidedWeeklyComplete = document.querySelector("#guided-weekly-complete");
 const topicPicker = document.querySelector("#topic-picker");
+const createUpdateScenario = document.querySelector("#create-update-scenario");
 const loadActivePlans = document.querySelector("#load-active-plans");
 const activePlanList = document.querySelector("#active-plan-list");
 const sandboxPlanDocument = document.querySelector("#sandbox-plan-document");
@@ -60,6 +61,12 @@ const sandboxUpdateChoices = document.querySelector("#sandbox-update-choices");
 const sandboxUpdateReason = document.querySelector("#sandbox-update-reason");
 const sandboxUpdateNote = document.querySelector("#sandbox-update-note");
 const sandboxSaveUpdate = document.querySelector("#sandbox-save-update");
+const sandboxAssessment = document.querySelector("#sandbox-assessment");
+const sandboxDeriveAssessment = document.querySelector("#sandbox-derive-assessment");
+const sandboxApplyAssessment = document.querySelector("#sandbox-apply-assessment");
+const sandboxDeriveRevision = document.querySelector("#sandbox-derive-revision");
+const sandboxApplyRevision = document.querySelector("#sandbox-apply-revision");
+const sandboxAssessmentDocument = document.querySelector("#sandbox-assessment-document");
 const batchEntry = document.querySelector("#batch-entry");
 const runBatch = document.querySelector("#run-batch");
 const batchReport = document.querySelector("#batch-report");
@@ -152,6 +159,11 @@ function planHtml(plan, title = "Action plan") {
   return `<h2>${escapeHtml(title)}</h2><h3>What you’re working on</h3><p>${escapeHtml(goal)}</p><h3>This week’s focus</h3>${listHtml(plan.remainingPlan)}${step}<h3>What progress looks like</h3>${listHtml(plan.successMarkers)}<h3>Important guardrails</h3>${listHtml(plan.guardrails)}<p class=\"plan-note\">Starting mode: ${escapeHtml(String(plan.mode || "not set").replaceAll("_", " "))}. This view translates the stored plan; it does not change it.</p>`;
 }
 function showPlan(target, plan, title) { target.innerHTML = planHtml(plan, title); target.classList.remove("hidden"); }
+function assessmentHtml(assessment) {
+  if (!assessment || typeof assessment !== "object") return "<p class=\"plan-note\">No assessment is available yet.</p>";
+  const recommendation = assessment.planRecommendation || {};
+  return `<h2>Future You’s assessment</h2><h3>What the update shows</h3><p>${escapeHtml(text(assessment.summary) || text(assessment.evidenceSummary) || "The assessment is based only on this test’s recorded evidence.")}</p><h3>Suggested direction</h3><p><strong>${escapeHtml(String(recommendation.outcome || recommendation.adjustmentOutcome || "No change suggested").replaceAll("_", " "))}</strong></p><p>${escapeHtml(text(recommendation.rationale) || "Read the assessment details below before applying any change.")}</p><details><summary>Assessment details</summary><pre class=\"draft\">${escapeHtml(JSON.stringify(assessment, null, 2))}</pre></details>`;
+}
 function batchHtml(cases) {
   return `<h2>Automatic example</h2>${cases.map((item) => `<section><h3>${escapeHtml(item.goal)}</h3><p><strong>Internal owner:</strong> ${escapeHtml(item.internalOwner)}</p><h3>Conversation transcript</h3>${(item.transcript || []).map((turn) => `<div class="plan-document"><p><strong>Future You:</strong> ${escapeHtml(turn.question)}</p><p><strong>Simulated user ${turn.control?.includes("select") ? "taps" : "answers"}:</strong> ${escapeHtml(turn.answer?.answer || "")}</p><p class="plan-note">${escapeHtml(turn.whyThisMatters || "")}</p></div>`).join("")}<h3>Action plan draft</h3>${item.plan ? planHtml(item.plan, "Action plan") : `<p class="error">${escapeHtml(item.sourceError ? `Source handoff failed: ${item.sourceError}` : item.planError || "No plan draft was created.")}</p>`}<h3>Progress example</h3>${listHtml((item.progressUpdates || []).map((update) => `${update.selectedChoice?.label || update.normalizedState} — ${update.optionalNote}`))}${item.weeklyQuestion ? `<h3>Weekly review question</h3><p>${escapeHtml(item.weeklyQuestion.question)}</p>` : ""}${item.assessment ? `<h3>Future You’s proposed direction</h3><p>${escapeHtml(item.assessment.planRecommendation?.outcome || "No plan change proposed")}: ${escapeHtml(item.assessment.planRecommendation?.rationale || "")}</p>` : `<p class="error">${escapeHtml(item.progressError || "Progress assessment was not available.")}</p>`}<h3>What to review</h3>${listHtml(item.findings)}</section>`).join("")}`;
 }
@@ -244,6 +256,11 @@ function renderSandbox() {
     button.addEventListener("click", () => { sandbox.selectedChoiceId = choice.id; renderSandbox(); });
     sandboxUpdateChoices.append(button);
   }
+  sandboxAssessment.classList.toggle("hidden", !sandbox.lastProgressUpdateId);
+  sandboxApplyAssessment.classList.toggle("hidden", !sandbox.assessmentDraft);
+  sandboxDeriveRevision.classList.toggle("hidden", !sandbox.assessmentId);
+  sandboxApplyRevision.classList.toggle("hidden", !sandbox.revisionDraft);
+  if (sandbox.assessmentDraft) { sandboxAssessmentDocument.innerHTML = assessmentHtml(sandbox.assessmentDraft); sandboxAssessmentDocument.classList.remove("hidden"); }
 }
 
 async function openSandboxGoal(goalId) {
@@ -251,10 +268,21 @@ async function openSandboxGoal(goalId) {
     callFutureYou({ operation: "plan_state", goalId }),
     callFutureYou({ operation: "progress_update_options", goalId }),
   ]);
-  sandbox = { goalId, plan: state.livePlan.plan, liveRevision: updates.liveRevision, todayStep: updates.todayStep, updateChoices: updates.visibleChoices };
+  sandbox = { goalId, plan: state.livePlan.plan, liveRevision: updates.liveRevision, todayStep: updates.todayStep, updateChoices: updates.visibleChoices, l3Revision: state.l3State?.revision };
   renderSandbox();
   show(result, "Approved plan opened. You can now test the update flow directly.");
 }
+
+createUpdateScenario.addEventListener("click", async () => {
+  createUpdateScenario.disabled = true;
+  try {
+    const data = await callFutureYou({ operation: "create_update_test_scenario" });
+    sandbox = { goalId: data.goalId, plan: data.plan, liveRevision: data.liveRevision, todayStep: data.todayStep, updateChoices: data.visibleChoices, l3Revision: data.l3Revision, testFixture: true };
+    renderSandbox();
+    show(result, "Fresh update test is ready. Pick an update choice below; intake was intentionally skipped for this test.");
+  } catch (error) { show(result, error instanceof Error ? error.message : "Unable to create the update test.", true); }
+  finally { createUpdateScenario.disabled = false; }
+});
 
 async function syncGuidedIntake() {
   if (!guided?.goalId || !guided?.intakeId) return false;
@@ -438,10 +466,55 @@ sandboxSaveUpdate.addEventListener("click", async () => {
   try {
     const choice = (sandbox.updateChoices || []).find((item) => item.id === sandbox.selectedChoiceId);
     const data = await callFutureYou({ operation: "record_progress_update", goalId: sandbox.goalId, clientUpdateId: crypto.randomUUID(), expectedLiveRevision: sandbox.liveRevision, selectedChoiceId: sandbox.selectedChoiceId, reasonCategory: choice?.normalizedState === "completed" ? null : sandboxUpdateReason.value, reasonCode: sandboxUpdateNote.value.trim() || choice?.normalizedState || "completed", variables: [], optionalNote: sandboxUpdateNote.value.trim() || null });
-    show(result, `Test update saved. ${data.note || ""}`);
-    sandboxUpdateNote.value = ""; sandbox.selectedChoiceId = null;
+    sandbox.lastProgressUpdateId = data.result?.progress_update_id; sandboxUpdateNote.value = ""; sandbox.selectedChoiceId = null; renderSandbox();
+    show(result, "Test update saved. You can now ask Future You to assess the recorded evidence.");
   } catch (error) { show(result, error instanceof Error ? error.message : "Unable to save test update.", true); }
   finally { sandboxSaveUpdate.disabled = false; }
+});
+
+sandboxDeriveAssessment.addEventListener("click", async () => {
+  if (!sandbox?.goalId) return;
+  sandboxDeriveAssessment.disabled = true;
+  try {
+    const data = await callFutureYou({ operation: "derive_progression_assessment", goalId: sandbox.goalId });
+    sandbox.assessmentDraft = data.assessmentDraft; sandbox.l3Revision = data.l3Revision; renderSandbox();
+    show(result, "Assessment draft created. Read it, then apply it only if you want to test the next protected step.");
+  } catch (error) { show(result, error instanceof Error ? error.message : "Unable to create the assessment draft.", true); }
+  finally { sandboxDeriveAssessment.disabled = false; }
+});
+
+sandboxApplyAssessment.addEventListener("click", async () => {
+  if (!sandbox?.assessmentDraft) return;
+  sandboxApplyAssessment.disabled = true;
+  try {
+    const data = await callFutureYou({ operation: "apply_progression_assessment", goalId: sandbox.goalId, assessment: sandbox.assessmentDraft, expectedRevision: sandbox.l3Revision });
+    sandbox.assessmentId = data.result?.assessment_id; sandbox.l3Revision = data.result?.resulting_revision; renderSandbox();
+    show(result, "Assessment applied to this separate test. You can now view the revised action-plan draft.");
+  } catch (error) { show(result, error instanceof Error ? error.message : "Unable to apply this assessment.", true); }
+  finally { sandboxApplyAssessment.disabled = false; }
+});
+
+sandboxDeriveRevision.addEventListener("click", async () => {
+  if (!sandbox?.assessmentId || !sandbox?.lastProgressUpdateId) return;
+  sandboxDeriveRevision.disabled = true;
+  try {
+    const data = await callFutureYou({ operation: "derive_live_plan_revision", goalId: sandbox.goalId, progressUpdateId: sandbox.lastProgressUpdateId, assessmentId: sandbox.assessmentId, expectedRevision: sandbox.liveRevision });
+    sandbox.revisionDraft = data.planDraft; sandbox.livePlanChange = data.livePlanChange; sandbox.revisionValidation = data.validationResult;
+    showPlan(sandboxPlanDocument, data.planDraft, "Revised action-plan draft"); renderSandbox();
+    show(result, "Revised action-plan draft created. It has not changed the test plan yet.");
+  } catch (error) { show(result, error instanceof Error ? error.message : "Unable to create the revised plan draft.", true); }
+  finally { sandboxDeriveRevision.disabled = false; }
+});
+
+sandboxApplyRevision.addEventListener("click", async () => {
+  if (!sandbox?.revisionDraft || !sandbox?.assessmentId || !sandbox?.lastProgressUpdateId) return;
+  sandboxApplyRevision.disabled = true;
+  try {
+    const data = await callFutureYou({ operation: "revise_live_plan", goalId: sandbox.goalId, progressUpdateId: sandbox.lastProgressUpdateId, assessmentId: sandbox.assessmentId, expectedRevision: sandbox.liveRevision, planDraft: sandbox.revisionDraft });
+    sandbox.liveRevision = data.result?.revision || sandbox.liveRevision + 1; sandbox.plan = sandbox.revisionDraft; sandbox.revisionDraft = null; renderSandbox();
+    show(result, "Revised action plan applied to this separate test. The original test plan remains unchanged.");
+  } catch (error) { show(result, error instanceof Error ? error.message : "Unable to apply the revised plan.", true); }
+  finally { sandboxApplyRevision.disabled = false; }
 });
 
 runBatch.addEventListener("click", async () => {

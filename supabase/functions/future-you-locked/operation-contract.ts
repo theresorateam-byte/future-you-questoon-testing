@@ -15,6 +15,7 @@ export const LOCKED_OPERATIONS = [
   "derive_initial_plan",
   "approve_initial_plan",
   "plan_state",
+  "create_update_test_scenario",
   "test_lab_active_goals",
   "batch_test_report",
   "simulate_flow_batch",

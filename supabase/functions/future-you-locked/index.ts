@@ -19,6 +19,7 @@ import { deriveWeeklyCheckinQuestion, WEEKLY_CHECKIN_KEYS } from "./weekly-check
 import { UMBRELLA_ENTRIES, umbrellaEntry, umbrellaQuestionForTarget, routeUmbrellaAnswer } from "./umbrella-routing.ts";
 import { deriveBatchTestReport } from "./batch-lab.ts";
 import { simulateFlowBatch } from "./flow-batch-simulator.ts";
+import { SafeDraftError } from "./openai-draft.ts";
 
 /**
  * Locked Future You service, kept separate from the legacy future-you-engine.
@@ -128,6 +129,40 @@ const TOPIC_START_INTENTS: Record<string, string> = {
 const UMBRELLA_ROUTING_CONTRACTS: Record<string, string> = {
   get_more_done: "time_procrastination",
   get_daily_life_in_order: "home_routines",
+};
+
+const UPDATE_TEST_SOURCE = {
+  engine_version: "future-you-locked-v1",
+  test_fixture: true,
+  selected_entry_key: "get_more_done",
+  selected_topic_key: "time_management",
+  normalizedGoal: { value: "Make a 10-minute start on one important task this week." },
+  safety: { value: "The task is personally appropriate and can be paused if circumstances change." },
+  realism: { value: "A short start fits better than a large catch-up session." },
+  capacity: { value: "Ten minutes is available on one weekday." },
+  initialMode: "tiny_start",
+  milestone: { value: "Choose one task and begin it for ten minutes." },
+  guardrails: { value: "Keep the step small; do not turn it into an all-or-nothing test." },
+  entryGate: "active",
+  l3InitialState: { confidence: "early", units: { start: { status: "early" }, follow_through: { status: "early" } } },
+};
+
+const UPDATE_TEST_PLAN = {
+  contractVersion: "locked-v1",
+  sourceReferences: ["normalizedGoal", "safety", "realism", "capacity", "initialMode", "milestone", "guardrails"],
+  goal: { intendedResult: "Make a 10-minute start on one important task this week." },
+  entryGate: "active",
+  mode: "tiny_start",
+  milestones: ["Choose one task that matters this week.", "Begin it for ten minutes on one weekday."],
+  successMarkers: ["You begin the chosen task, even if you stop after ten minutes.", "You can name what made the start easier or harder."],
+  guardrails: ["Keep the step to ten minutes.", "If the task becomes unrealistic, record that instead of forcing it."],
+  firstTodayStep: { action: "Choose one important task and work on it for ten minutes.", minimumVersion: "Open the task and stay with it for two minutes.", successMarker: "You started the chosen task." },
+  prepareAction: null,
+  completedPortion: [],
+  remainingPlan: [
+    { action: "Choose one important task for this week." },
+    { action: "Make one ten-minute start and notice what affected it." },
+  ],
 };
 
 function weeklyCheckinContent(value: unknown): Record<string, unknown> | null {
@@ -496,6 +531,48 @@ Deno.serve(async (req): Promise<Response> => {
       if (queryError) throw queryError;
       if (!originalResult.data || !liveResult.data) return json({ error: "No Locked v1 plan was found for this goal." }, 404);
       return json({ engine: "future-you-locked-v1", originalPlan: originalResult.data, livePlan: liveResult.data, l3State: l3Result.data ?? null });
+    }
+
+    if (payload.operation === "create_update_test_scenario") {
+      // This is deliberately a separate, plainly labelled fixture. It gives a
+      // tester a real Locked-v1 Original Plan, Live Plan, L3 state, and update
+      // ledger without making them complete an intake first. It never reads or
+      // reuses another goal, plan, or answer from the tester account.
+      const { data: started, error: startError } = await context.admin.rpc("future_you_start_locked_intake", {
+        p_user_id: context.user.id,
+        p_goal_text: "[Future You update test] Make a 10-minute start on one important task this week.",
+        p_topic_key: null,
+      });
+      if (startError || !Array.isArray(started) || !started[0]?.goal_id || !started[0]?.intake_instance_id) {
+        throw startError ?? new Error("Unable to start the isolated update test.");
+      }
+      const fixture = started[0] as { goal_id: string; intake_instance_id: string };
+      const { data: topic, error: topicError } = await context.admin.from("future_you_contract_versions")
+        .select("id").eq("contract_key", "time_management").eq("scope", "topic").eq("status", "locked").maybeSingle();
+      if (topicError || !topic) throw topicError ?? new Error("The update-test topic contract is unavailable.");
+      const [{ error: bindingError }, { error: intakeError }] = await Promise.all([
+        context.admin.from("goal_contract_bindings").insert({ goal_id: fixture.goal_id, user_id: context.user.id, contract_version_id: topic.id, binding_role: "topic" }),
+        context.admin.from("intake_instances").update({ status: "validated", next_information_target: null, source_snapshot: UPDATE_TEST_SOURCE }).eq("id", fixture.intake_instance_id).eq("user_id", context.user.id),
+      ]);
+      if (bindingError || intakeError) throw bindingError ?? intakeError;
+      const integrityHash = await sha256Json(UPDATE_TEST_PLAN);
+      const { data: approved, error: approveError } = await context.admin.rpc("future_you_approve_locked_initial_plan", {
+        p_user_id: context.user.id, p_intake_instance_id: fixture.intake_instance_id, p_plan: UPDATE_TEST_PLAN, p_integrity_hash: integrityHash,
+      });
+      if (approveError) throw approveError;
+      const todayStep = currentTodayStep(UPDATE_TEST_PLAN);
+      return json({
+        engine: "future-you-locked-v1",
+        testFixture: true,
+        goalId: fixture.goal_id,
+        plan: UPDATE_TEST_PLAN,
+        liveRevision: 1,
+        todayStep,
+        visibleChoices: buildVisibleUpdateChoices(UPDATE_TEST_PLAN),
+        l3Revision: 1,
+        result: approved,
+        note: "A separate Future You update-test plan was created. It uses the same protected progress, assessment, and Live Plan revision operations as the product path.",
+      });
     }
 
     if (payload.operation === "test_lab_active_goals") {
@@ -985,7 +1062,12 @@ Deno.serve(async (req): Promise<Response> => {
       },
     });
   } catch (error) {
-    console.error("future-you-locked request failed", { name: error instanceof Error ? error.name : "UnknownError" });
+    const safe = error instanceof SafeDraftError ? error : null;
+    console.error("future-you-locked request failed", { name: error instanceof Error ? error.name : "UnknownError", code: safe?.code ?? null });
+    if (safe) {
+      const actionPlan = safe.code === "plan_contract_invalid" || safe.message.startsWith("AI plan derivation");
+      return json({ error: actionPlan ? "Action-plan draft could not be made." : "AI draft could not be made.", code: safe.code, stage: actionPlan ? "action_plan" : "ai_draft" }, 502);
+    }
     return json({ error: "Unable to process this request." }, 500);
   }
 });
