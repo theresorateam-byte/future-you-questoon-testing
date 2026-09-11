@@ -154,7 +154,13 @@ const UPDATE_TEST_SOURCE = {
   milestone: { value: "Choose one task and begin it for ten minutes." },
   guardrails: { value: "Keep the step small; do not turn it into an all-or-nothing test." },
   entryGate: "active",
-  l3InitialState: { confidence: "early", units: { start: { status: "early" }, follow_through: { status: "early" } } },
+  l3InitialState: {
+    model: "time_architecture_v1", route: "time_management",
+    units: {
+      time_capacity_awareness: { level: 1 }, priority_scope_control: { level: 1 }, planning_allocation: { level: 1 },
+      capture_externalization: { level: 1 }, time_protection_efficiency: { level: 1 }, adaptation_recovery: { level: 1 },
+    },
+  },
 };
 
 const UPDATE_TEST_PLAN = {
