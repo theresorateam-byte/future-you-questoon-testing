@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Future You Test Console</title>
+    <title>Future You Test Lab</title>
     <style>
       :root { color-scheme: dark; font-family: Inter, system-ui, sans-serif; background: #0d1320; color: #edf2ff; }
       body { max-width: 920px; margin: 0 auto; padding: 32px 18px 80px; }
@@ -18,17 +18,18 @@
       .status { border-left: 4px solid #70e1bf; padding: 10px 12px; background: #102a29; white-space: pre-wrap; }
       .error { border-color: #ff8f8f; background: #381e27; } .hidden { display: none; }
       .guided-answer { min-height: 110px; font-family: inherit; } .draft { max-height: 520px; overflow: auto; }
-      .plan-document { background:#0d1320; border:1px solid #415373; border-radius:10px; padding:18px; margin-top:16px; line-height:1.55; }
-      .plan-document h3 { margin:18px 0 6px; } .plan-document h3:first-child { margin-top:0; }
-      .plan-document ul { margin:6px 0; padding-left:22px; } .plan-document .plan-note { color:#b7c2dc; }
+      .plan-document { background:#f7f2e8; color:#1f2a35; border:1px solid #d7cdbb; border-radius:12px; padding:28px; margin-top:16px; line-height:1.62; box-shadow:0 12px 32px rgba(0,0,0,.18); }
+      .plan-document h2 { font-family: Georgia, serif; font-size:1.8rem; margin:0 0 4px; color:#263a36; } .plan-document h3 { color:#35594e; margin:18px 0 6px; } .plan-document h3:first-child { margin-top:0; }
+      .plan-document ul { margin:6px 0; padding-left:22px; } .plan-document .plan-note { color:#53626c; } .plan-document details { border-top:1px solid #d7cdbb; margin-top:20px; padding-top:12px; } .plan-document .draft { background:#eef0eb; color:#202a32; padding:12px; border-radius:8px; }
+      .plan-comparison { display:grid; grid-template-columns:1fr 1fr; gap:14px; } .plan-comparison section { background:#eef0eb; border:1px solid #d7cdbb; margin:0; padding:14px; } @media (max-width:600px) { .plan-comparison { grid-template-columns:1fr; } }
       .topic-picker { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:8px; margin:8px 0 16px; }
       .topic-picker button { margin:0; text-align:left; background:#20314e; color:#edf2ff; } .topic-picker button.selected { outline:2px solid #70e1bf; background:#17483d; }
       .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; } @media (max-width: 600px) { .row { grid-template-columns: 1fr; } }
     </style>
   </head>
   <body>
-    <h1>Future You Test Console</h1>
-    <p class="subtle">A local-only tester interface for the protected Supabase Future You backend. It does not modify the existing Firebase application and never contains a server or OpenAI key.</p>
+    <h1>Future You Test Lab</h1>
+    <p class="subtle">A private place to test the Future You conversation, weekly review, and action plans. It is separate from the Firebase app and never contains a server or OpenAI key.</p>
 
     <section>
       <h2>1. Sign in as a tester</h2>
@@ -108,7 +109,7 @@
 
     <section id="update-sandbox">
       <h2>3. Test updates directly</h2>
-      <p class="subtle">This starts a separate, ready-made test plan. You do not need to finish intake first. It uses the same protected update, assessment, and plan-revision logic as the product, while keeping the test clearly separate from your intake tests.</p>
+      <p class="subtle">This starts a separate, ready-made test plan. It lets you test a full week without repeating intake: daily updates, a real weekly conversation, then a revised plan.</p>
       <button id="create-update-scenario" type="button">Start a fresh update test</button>
       <button id="load-active-plans" class="secondary" type="button">Open a previous test plan</button>
       <div id="active-plan-list" class="topic-picker hidden"></div>
@@ -125,13 +126,27 @@
       </div>
       <div id="sandbox-week" class="hidden">
         <h3>Test a week, not one button</h3>
-        <p class="subtle">This runs five dated daily updates against this exact test plan: a mix of completed steps, smaller starts, and days that did not happen. It then asks Future You to assess the whole pattern. No intake is required.</p>
+        <p class="subtle">This saves five dated daily updates against this exact test plan: a mix of completed steps, smaller starts, and days that did not happen. Then you move into the weekly conversation.</p>
         <button id="sandbox-run-week" type="button">Run a mixed test week</button>
         <article id="sandbox-week-timeline" class="plan-document hidden"></article>
       </div>
+      <div id="sandbox-weekly" class="hidden">
+        <h3>Weekly conversation</h3>
+        <p id="sandbox-weekly-status" class="status"></p>
+        <button id="sandbox-weekly-start" type="button">Start weekly conversation</button>
+        <div id="sandbox-weekly-question-wrap" class="hidden">
+          <h3 id="sandbox-weekly-question"></h3>
+          <p id="sandbox-weekly-reason" class="subtle"></p>
+          <div id="sandbox-weekly-options" class="topic-picker"></div>
+          <label for="sandbox-weekly-answer">Your answer</label>
+          <textarea id="sandbox-weekly-answer" class="guided-answer" placeholder="Answer in your own words."></textarea>
+          <button id="sandbox-weekly-submit" type="button">Continue weekly conversation</button>
+        </div>
+        <button id="sandbox-weekly-complete" class="secondary hidden" type="button">Finish weekly conversation</button>
+      </div>
       <div id="sandbox-assessment" class="hidden">
         <h3>See how Future You responds to the update</h3>
-        <p class="subtle">After an update is saved, generate the assessment draft. You can read it before applying it. Applying it updates the test’s Level 3 state only; it does not rewrite the plan yet.</p>
+        <p class="subtle">After the weekly conversation, create the assessment. You can read it before applying it. Applying it updates the test’s Level 3 state only; it does not rewrite the plan yet.</p>
         <button id="sandbox-derive-assessment" type="button">Show AI assessment draft</button>
         <button id="sandbox-apply-assessment" class="secondary hidden" type="button">Apply assessment to this test</button>
         <button id="sandbox-derive-revision" class="secondary hidden" type="button">Show revised action-plan draft</button>
@@ -170,6 +185,6 @@
       <h2>Test result</h2>
       <pre id="result" class="status">Sign in, then run a protected operation.</pre>
     </section>
-    <script type="module" src="./app.js?v=full-cycle-test-v1"></script>
+    <script type="module" src="./app.js?v=document-weekly-test-v2"></script>
   </body>
 </html>

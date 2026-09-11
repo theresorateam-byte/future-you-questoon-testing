@@ -72,6 +72,16 @@ const sandboxSaveUpdate = document.querySelector("#sandbox-save-update");
 const sandboxWeek = document.querySelector("#sandbox-week");
 const sandboxRunWeek = document.querySelector("#sandbox-run-week");
 const sandboxWeekTimeline = document.querySelector("#sandbox-week-timeline");
+const sandboxWeekly = document.querySelector("#sandbox-weekly");
+const sandboxWeeklyStatus = document.querySelector("#sandbox-weekly-status");
+const sandboxWeeklyStart = document.querySelector("#sandbox-weekly-start");
+const sandboxWeeklyQuestionWrap = document.querySelector("#sandbox-weekly-question-wrap");
+const sandboxWeeklyQuestion = document.querySelector("#sandbox-weekly-question");
+const sandboxWeeklyReason = document.querySelector("#sandbox-weekly-reason");
+const sandboxWeeklyOptions = document.querySelector("#sandbox-weekly-options");
+const sandboxWeeklyAnswer = document.querySelector("#sandbox-weekly-answer");
+const sandboxWeeklySubmit = document.querySelector("#sandbox-weekly-submit");
+const sandboxWeeklyComplete = document.querySelector("#sandbox-weekly-complete");
 const sandboxAssessment = document.querySelector("#sandbox-assessment");
 const sandboxDeriveAssessment = document.querySelector("#sandbox-derive-assessment");
 const sandboxApplyAssessment = document.querySelector("#sandbox-apply-assessment");
@@ -173,6 +183,9 @@ function planHtml(plan, title = "Action plan") {
   return `<h2>${escapeHtml(title)}</h2><h3>What you’re working on</h3><p>${escapeHtml(goal)}</p><h3>This week’s focus</h3>${listHtml(plan.remainingPlan)}${step}<h3>What progress looks like</h3>${listHtml(plan.successMarkers)}<h3>Important guardrails</h3>${listHtml(plan.guardrails)}<p class=\"plan-note\">Starting mode: ${escapeHtml(String(plan.mode || "not set").replaceAll("_", " "))}. This view translates the stored plan; it does not change it.</p>`;
 }
 function showPlan(target, plan, title) { target.innerHTML = planHtml(plan, title); target.classList.remove("hidden"); }
+function revisionHtml(before, after) {
+  return `<h2>Your revised action plan</h2><p class="plan-note">Compare the current plan with the proposed next version before applying it.</p><div class="plan-comparison"><section>${planHtml(before, "Current plan")}</section><section>${planHtml(after, "Proposed revised plan")}</section></div>`;
+}
 function assessmentHtml(assessment) {
   if (!assessment || typeof assessment !== "object") return "<p class=\"plan-note\">No assessment is available yet.</p>";
   const recommendation = assessment.planRecommendation || {};
@@ -282,10 +295,41 @@ function renderSandbox() {
     button.addEventListener("click", () => { sandbox.selectedChoiceId = choice.id; renderSandbox(); });
     sandboxUpdateChoices.append(button);
   }
-  sandboxAssessment.classList.toggle("hidden", !sandbox.lastProgressUpdateId);
+  sandboxWeekly.classList.toggle("hidden", !sandbox.weekEvents);
+  const weeklyState = sandbox.weeklyState?.weeklyCheckIn;
+  sandboxWeeklyStatus.textContent = weeklyState?.note || "Finish the test week, then answer three deeper questions about what happened.";
+  const weeklyDraft = sandbox.weeklyQuestionDraft;
+  if (weeklyDraft) {
+    sandboxWeeklyQuestionWrap.classList.remove("hidden");
+    sandboxWeeklyQuestion.textContent = weeklyDraft.question;
+    sandboxWeeklyReason.textContent = weeklyDraft.whyThisMatters || "This helps Future You understand the week without guessing.";
+    sandboxWeeklyOptions.innerHTML = "";
+    const selected = new Set(sandbox.weeklySelectedOptionIds || []);
+    for (const option of weeklyDraft.options || []) {
+      const button = document.createElement("button"); button.type = "button"; button.textContent = option.label;
+      button.classList.toggle("selected", selected.has(option.id));
+      button.addEventListener("click", () => {
+        const multi = weeklyDraft.control === "multi_select";
+        if (multi) selected.has(option.id) ? selected.delete(option.id) : selected.add(option.id);
+        else { selected.clear(); selected.add(option.id); }
+        sandbox.weeklySelectedOptionIds = [...selected];
+        sandboxWeeklyAnswer.value = [...selected].map((id) => (weeklyDraft.options || []).find((item) => item.id === id)?.label).filter(Boolean).join(", ");
+        renderSandbox();
+      });
+      sandboxWeeklyOptions.append(button);
+    }
+    sandboxWeeklyComplete.classList.add("hidden");
+  } else {
+    sandboxWeeklyQuestionWrap.classList.add("hidden");
+    const readyToFinish = (sandbox.weeklyAnswerCount || 0) >= 3 && sandbox.weeklyCheckInId && !sandbox.weeklyCompleted;
+    sandboxWeeklyComplete.classList.toggle("hidden", !readyToFinish);
+  }
+  sandboxWeeklyStart.classList.toggle("hidden", !sandbox.weekEvents || Boolean(sandbox.weeklyCheckInId));
+  sandboxAssessment.classList.toggle("hidden", !sandbox.weeklyCompleted);
   sandboxApplyAssessment.classList.toggle("hidden", !sandbox.assessmentDraft);
   sandboxDeriveRevision.classList.toggle("hidden", !sandbox.assessmentId);
   sandboxApplyRevision.classList.toggle("hidden", !sandbox.revisionDraft);
+  if (sandbox.revisionDraft) { sandboxPlanDocument.innerHTML = revisionHtml(sandbox.plan, sandbox.revisionDraft); }
   if (sandbox.assessmentDraft) { sandboxAssessmentDocument.innerHTML = assessmentHtml(sandbox.assessmentDraft); sandboxAssessmentDocument.classList.remove("hidden"); }
   if (sandbox.weekEvents) { sandboxWeekTimeline.innerHTML = weekHtml(sandbox.weekEvents, sandbox.weekAssessmentError); sandboxWeekTimeline.classList.remove("hidden"); }
 }
@@ -509,7 +553,7 @@ guidedApplyAssessment.addEventListener("click", async () => {
 });
 guidedDeriveRevision.addEventListener("click", async () => {
   guidedDeriveRevision.disabled = true;
-  try { const data = await callFutureYou({ operation: "derive_live_plan_revision", goalId: guided.goalId, progressUpdateId: guided.lastProgressUpdateId || "00000000-0000-4000-8000-000000000000", assessmentId: guided.assessmentId, expectedRevision: guided.liveRevision }); guided.revisionDraft = data.planDraft; guided.livePlanChange = data.livePlanChange; guided.revisionValidation = data.validationResult; showPlan(planDocument, data.planDraft, "Revised action-plan draft"); saveGuided(); renderGuided(); }
+  try { const data = await callFutureYou({ operation: "derive_live_plan_revision", goalId: guided.goalId, progressUpdateId: guided.lastProgressUpdateId || "00000000-0000-4000-8000-000000000000", assessmentId: guided.assessmentId, expectedRevision: guided.liveRevision }); guided.revisionDraft = data.planDraft; guided.livePlanChange = data.livePlanChange; guided.revisionValidation = data.validationResult; planDocument.innerHTML = revisionHtml(guided.planDraft, data.planDraft); planDocument.classList.remove("hidden"); saveGuided(); renderGuided(); }
   catch (error) { show(result, error instanceof Error ? error.message : "Unable to create the revised action plan.", true); } finally { guidedDeriveRevision.disabled = false; }
 });
 guidedApplyRevision.addEventListener("click", async () => {
@@ -568,14 +612,52 @@ sandboxRunWeek.addEventListener("click", async () => {
       events.push({ day: item.day, choice: choice.label, note: item.note });
     }
     sandbox.weekEvents = events; sandbox.weekAssessmentError = null;
-    const assessment = await callFutureYou({ operation: "derive_progression_assessment", goalId: sandbox.goalId });
-    sandbox.assessmentDraft = assessment.assessmentDraft; sandbox.l3Revision = assessment.l3Revision;
+    sandbox.weeklyState = await callFutureYou({ operation: "weekly_checkin_state", goalId: sandbox.goalId });
     renderSandbox();
-    show(result, "The five-day test week was saved and assessed. Read the timeline and Future You assessment together; this is the point where we judge whether the logic makes sense.");
+    show(result, "The five-day test week is saved. Start the weekly conversation next; it will use this exact pattern of updates.");
   } catch (error) {
-    sandbox.weekEvents = events; sandbox.weekAssessmentError = error instanceof Error ? error.message : "Unknown assessment error"; renderSandbox();
-    show(result, sandbox.weekEvents.length ? "The week was partly saved, but the assessment needs attention. The timeline shows exactly how far it got." : sandbox.weekAssessmentError, true);
+    sandbox.weekEvents = events; sandbox.weekAssessmentError = error instanceof Error ? error.message : "Unknown test-week error"; renderSandbox();
+    show(result, sandbox.weekEvents.length ? "The week was partly saved. The timeline shows exactly how far it got." : sandbox.weekAssessmentError, true);
   } finally { sandboxRunWeek.disabled = false; }
+});
+
+async function loadSandboxWeeklyQuestion() {
+  const data = await callFutureYou({ operation: "derive_weekly_checkin_question", goalId: sandbox.goalId, checkInId: sandbox.weeklyCheckInId });
+  sandbox.weeklyAnswerCount = data.answerCount || 0;
+  sandbox.weeklyQuestionDraft = data.questionDraft || null;
+  if (data.complete) sandbox.weeklyQuestionDraft = null;
+  renderSandbox();
+}
+
+sandboxWeeklyStart.addEventListener("click", async () => {
+  sandboxWeeklyStart.disabled = true;
+  try {
+    sandbox.weeklyCheckInId = crypto.randomUUID(); sandbox.weeklyAnswerCount = 0; sandbox.weeklyCompleted = false;
+    await loadSandboxWeeklyQuestion();
+    show(result, "Weekly conversation started. These questions are based on the daily updates you just saved.");
+  } catch (error) { show(result, error instanceof Error ? error.message : "Unable to start the weekly conversation.", true); }
+  finally { sandboxWeeklyStart.disabled = false; }
+});
+
+sandboxWeeklySubmit.addEventListener("click", async () => {
+  const answer = sandboxWeeklyAnswer.value.trim(); if (!answer || !sandbox.weeklyQuestionDraft) return;
+  sandboxWeeklySubmit.disabled = true;
+  try {
+    const data = await callFutureYou({ operation: "record_weekly_checkin_answer", goalId: sandbox.goalId, checkInId: sandbox.weeklyCheckInId, informationKey: sandbox.weeklyQuestionDraft.informationKey, answer, selectedOptionIds: sandbox.weeklySelectedOptionIds || [] });
+    sandbox.weeklyAnswerCount = data.answerCount; sandbox.weeklyQuestionDraft = null; sandbox.weeklySelectedOptionIds = []; sandboxWeeklyAnswer.value = "";
+    await loadSandboxWeeklyQuestion();
+  } catch (error) { show(result, error instanceof Error ? error.message : "Unable to save this weekly answer.", true); }
+  finally { sandboxWeeklySubmit.disabled = false; }
+});
+
+sandboxWeeklyComplete.addEventListener("click", async () => {
+  sandboxWeeklyComplete.disabled = true;
+  try {
+    await callFutureYou({ operation: "complete_weekly_checkin", goalId: sandbox.goalId, checkInId: sandbox.weeklyCheckInId });
+    sandbox.weeklyCompleted = true; sandbox.weeklyQuestionDraft = null; sandbox.weeklyState = await callFutureYou({ operation: "weekly_checkin_state", goalId: sandbox.goalId }); renderSandbox();
+    show(result, "Weekly conversation complete. You can now see Future You’s assessment and revised plan draft.");
+  } catch (error) { show(result, error instanceof Error ? error.message : "Unable to finish the weekly conversation.", true); }
+  finally { sandboxWeeklyComplete.disabled = false; }
 });
 
 sandboxDeriveAssessment.addEventListener("click", async () => {
@@ -606,7 +688,7 @@ sandboxDeriveRevision.addEventListener("click", async () => {
   try {
     const data = await callFutureYou({ operation: "derive_live_plan_revision", goalId: sandbox.goalId, progressUpdateId: sandbox.lastProgressUpdateId, assessmentId: sandbox.assessmentId, expectedRevision: sandbox.liveRevision });
     sandbox.revisionDraft = data.planDraft; sandbox.livePlanChange = data.livePlanChange; sandbox.revisionValidation = data.validationResult;
-    showPlan(sandboxPlanDocument, data.planDraft, "Revised action-plan draft"); renderSandbox();
+    sandboxPlanDocument.innerHTML = revisionHtml(sandbox.plan, data.planDraft); sandboxPlanDocument.classList.remove("hidden"); renderSandbox();
     show(result, "Revised action-plan draft created. It has not changed the test plan yet.");
   } catch (error) { show(result, error instanceof Error ? error.message : "Unable to create the revised plan draft.", true); }
   finally { sandboxDeriveRevision.disabled = false; }
